@@ -6,7 +6,7 @@ In order to use this code, you must download all Malawi data from the 2015-2016 
 
 You must also create a .Renviron file in the top level of the project directory
 
-It should include:
+It should include a system variable with the path to the location of the unzipped STATA files, as follows:
 
 ```
 DATA_DIRECTORY = "<path/to/unzipped/DHS/data>"
@@ -23,4 +23,4 @@ quarto render --to html
 
 Be aware that the code may take several hours to run in full. I recommend running code in the individual .qmd documents instead.
 
-Code should be run in the order of the `_quarto.yml` document, but models, tables, and figures featured in the manuscript are produced in the `RandR1_TalbesFigures.qmd` document.
+Code should be run in the order of the `_quarto.yml` document, but models, tables, and figures featured in the manuscript are produced in the `RandR1_TablesFigures.qmd` document.
