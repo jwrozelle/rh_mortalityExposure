@@ -1,6 +1,7 @@
 ## Code for mortality exposure paper
 
-This is the code that was used to generate the analysis for the article titled "Fatalism or vigilance? Women’s experiences of maternal and infant mortality & subsequent use of maternal health services", submitted to the Journal of World Development.
+This is the code that was used to generate the analysis for the article titled " Fatalism or vigilance?  
+Familial death & subsequent use of maternal health services in Malawi ", submitted to the Journal of World Development.
 
 In order to use this code, you must download all Malawi data from the 2015-2016 survey, downloaded in Stata format.
 
