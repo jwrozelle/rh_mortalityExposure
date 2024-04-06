@@ -1,0 +1,18 @@
+project:
+  type: book
+
+book:
+  title: "Maternal exposure to mortality analysis"
+  date: "02/25/2024"
+  chapters:
+    - index.qmd
+    - functions.qmd
+    - processData.qmd
+    - initial_submissionTablesFigs.qmd
+    - RandR.qmd
+    - RandR1_TablesFigures.qmd
+    
+
+format:
+  html:
+    theme: cosmo

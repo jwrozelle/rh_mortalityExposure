@@ -1,0 +1,549 @@
+---
+title: "Process Data"
+format: html
+editor: visual
+---
+
+## Recode dataframes
+
+###
+
+```{r loadData}
+
+# Load unprocessed data if it's already been saved as an R object in
+# setEnvironment.qmd and has not yet been loaded into the environment
+
+if (!exists("df_list") | !exists("dfBR_list") | !exists("dfKR_list")) {
+  load(file="data/ie_dfList.Rdata")
+}
+
+
+```
+
+
+### Universal cleaning code
+
+```{r recode}
+
+importAnalysisObjects <- c(
+  'df_list',
+  # 'df_list_m',
+  'ieClean',
+  'int_timing_vars',
+  'makefwdf'
+)
+  
+# age differences model
+cl <- makeCluster(n.cores)
+## Step 2: Load the necessary R package(s)
+## N.B. length(cl) is the number of child processes
+##      in the cluster 
+par.setup <- parLapply( cl, 1:length(cl),
+                        function(xx) {
+                          require(dplyr)
+                          require(stringr)
+                          require(uuid)
+                          require(labelled)
+                          require(naniar)
+                        })
+## Step 3: Distribute the necessary R objects 
+clusterExport( cl, importAnalysisObjects )
+
+## Step 4: Do the computation
+# Female datasets
+## basic cleaning
+df_list <- parLapplyLB(cl, df_list, ieClean)
+## add interviewer level variables
+df_list <- parLapplyLB(cl, df_list, addInterviewCount)
+# ## add more interviewer timing info
+# df_list <- parLapplyLB(cl, df_list, int_timing_vars)
+
+## Step 5: Remember to stop the cluster!
+stopCluster(cl)
+rm(par.setup)
+
+# Name them according to 3 digit survey code
+for (i in 1:length(df_list)) {
+  names(df_list)[i] <- df_list[[i]]$v000[1]
+}
+
+# # filter down to datasets with maternal mortality
+# df_list <- df_list[names(df_list) %in% dhs7_mm.vec]
+
+
+
+```
+
+### Country specific cleaning
+
+```{r countrySpecificClean}
+
+
+# # Malawi (MW7) ####
+# ## Interviewer Language
+# ### Individual Recode
+# df_list[["MW7"]]$nlang_fw <- NA
+# df_list[["MW7"]]$nlang_fw <- ifelse(df_list[["MW7"]]$fw113 == 1, 2, df_list[["MW7"]]$nlang_fw)
+# df_list[["MW7"]]$nlang_fw <- ifelse(df_list[["MW7"]]$fw113 == 2, 3, df_list[["MW7"]]$nlang_fw)
+# df_list[["MW7"]]$nlang_fw <- ifelse(df_list[["MW7"]]$fw113 == 96, 6, df_list[["MW7"]]$nlang_fw)
+# 
+# ## Language difference
+# ### Individual Recode
+# df_list[["MW7"]]$nlang_diff <- NA
+# df_list[["MW7"]]$nlang_diff <- ifelse(df_list[["MW7"]]$nlang_fw == df_list[["MW7"]]$nlang_r, 0, 1)
+
+
+
+```
+
+
+```{r}
+
+save(list=c("df_list"), 
+     file=paste0(getwd(), "\\data\\ie_dfListClean.Rdata"))
+
+
+```
+
+
+### clean child recode data
+
+```{r cleanKRdata}   
+
+
+if (!exists("df_list")) {load(paste0(getwd(), "\\data\\ie_dfListClean.Rdata"))}
+
+# df_list.bkp <- df_list
+# dfKR_list.bkp <- dfKR_list
+
+# df_list <- df_list.bkp
+# dfKR_list <- dfKR_list.bkp
+
+# load(paste0(getwd(), "\\data\\ie_dfListClean.Rdata"))
+
+
+
+importAnalysisObjects <- c(
+  'dfKR_list',
+  'df_list',
+  'krClean',
+  'preMergeTrim',
+  'cleanKR_vaxx'
+)
+
+# age differences model
+cl <- makeCluster(10)
+## Step 2: Load the necessary R package(s)
+## N.B. length(cl) is the number of child processes
+##      in the cluster 
+par.setup <- parLapply( cl, 1:length(cl),
+                        function(xx) {
+                          require(dplyr)
+                          require(stringr)
+                          require(uuid)
+                          require(labelled)
+                        })
+## Step 3: Distribute the necessary R objects 
+clusterExport( cl, importAnalysisObjects )
+
+## Step 4: Do the computation
+# Female datasets
+## basic cleaning
+dfKR_list <- parLapplyLB(cl, dfKR_list, krClean)
+dfKR_list <- parLapplyLB(cl, dfKR_list, cleanKR_vaxx)
+
+# Name them according to 3 digit survey code
+for (i in 1:length(dfKR_list)) {
+  names(dfKR_list)[i] <- dfKR_list[[i]]$v000[1]
+}
+
+
+
+
+## Step 5: Remember to stop the cluster!
+stopCluster(cl)
+rm(par.setup)
+
+# merge with df_list items
+dfKR_list <- lapply(names(dfKR_list), function(x) {
+  
+  if (x %in% names(df_list)) {
+    # trim out the columns that would be duplicated
+    IR_trim.df <- preMergeTrim(dfKR_list[[x]], df_list[[x]], "femaleID")
+    
+    my.df <- merge(dfKR_list[[x]],
+                   IR_trim.df,
+                   by = "femaleID",
+                   all.x = T,
+                   all.y = F,
+                   suffixes = c("", ".ir")
+    )
+    rm(IR_trim.df)
+  } else {
+    my.df <- dfKR_list[[x]]
+  }
+  
+  return(my.df)
+})
+
+# Name them according to 3 digit survey code
+for (i in 1:length(dfKR_list)) {
+  names(dfKR_list)[i] <- dfKR_list[[i]]$v000[1]
+}
+
+
+# # filter down to datasets with maternal mortality
+# dfKR_list <- dfKR_list[names(dfKR_list) %in% dhs7_mm.vec]
+# dfKR_list <- dfKR_list[names(dfKR_list) %in% names(df_list)]
+
+save(dfKR_list, file = file.path(getwd(), "data", "cleanKR.Rdata"))
+
+
+
+
+
+```
+
+
+
+### Clean birth recode data
+
+```{r cleanBRdata}
+
+if (!exists("dfKR_list")) {
+  load(file.path(getwd(), "data", "cleanKR.Rdata"))
+}
+if (!exists("df_list")) {
+  load(paste0(getwd(), "\\data\\ie_dfListClean.Rdata"))
+}
+
+
+#  # filter down to datasets with maternal mortality
+# df_list <- df_list[names(df_list) %in% dhs7_mm.vec]
+
+importAnalysisObjects <- c(
+  'dfBR_list',
+  'df_list',
+  'cleanBR',
+  'preMergeTrim'#,
+  # 'int_timing_vars',
+  # 'makefwdf'
+)
+
+# age differences model
+cl <- makeCluster(7)
+## Step 2: Load the necessary R package(s)
+## N.B. length(cl) is the number of child processes
+##      in the cluster 
+par.setup <- parLapply( cl, 1:length(cl),
+                        function(xx) {
+                          require(dplyr)
+                          require(stringr)
+                          require(uuid)
+                          require(labelled)
+                        })
+## Step 3: Distribute the necessary R objects 
+clusterExport( cl, importAnalysisObjects )
+
+## Step 4: Do the computation
+# Female datasets
+## basic cleaning
+dfBR_list <- parLapplyLB(cl, dfBR_list, cleanBR)
+
+# Name them according to 3 digit survey code
+for (i in 1:length(dfBR_list)) {
+  names(dfBR_list)[i] <- dfBR_list[[i]]$v000[1]
+}
+
+
+
+
+## Step 5: Remember to stop the cluster!
+stopCluster(cl)
+rm(par.setup)
+
+# merge with df_list items
+dfBR_list <- lapply(names(dfBR_list), function(x) {
+  
+  
+  if (x %in% names(df_list)) {
+    
+    IR_trim.df <- preMergeTrim(dfBR_list[[x]], df_list[[x]], by = "femaleID")
+    
+    my.df <- merge(dfBR_list[[x]],
+                   IR_trim.df,
+                   by = "femaleID",
+                   all.x = T,
+                   all.y = F,
+                   suffixes = c("", ".ir")
+    )
+    
+    rm(IR_trim.df)
+    
+  } else {
+    my.df <- dfBR_list[[x]]
+  }
+  
+  
+  return(my.df)
+})
+
+
+# Name them according to 3 digit survey code
+for (i in 1:length(dfBR_list)) {
+  names(dfBR_list)[i] <- dfBR_list[[i]]$v000[1]
+}
+
+
+#  # filter down to datasets with maternal mortality
+# dfKR_list <- dfKR_list[names(dfKR_list) %in% dhs7_mm.vec]
+# dfKR_list <- dfKR_list[names(dfKR_list) %in% names(df_list)]
+
+save(dfBR_list, file = file.path(getwd(), "data", "cleanBR.Rdata"))
+
+```
+
+
+
+```{r mergeBRtoIR}
+
+if (!exists("dfBR_list")) {
+  load(file.path(getwd(), "data", "cleanBR.Rdata"))
+}
+if (!exists("df_list")) {
+  load(paste0(getwd(), "\\data\\ie_dfListClean.Rdata"))
+}
+
+# df_list <- df_list[is.null(df_list)]
+
+BR_grouped.list <- lapply(dfBR_list, BRatIRlevel)
+
+# Name them according to 3 digit survey code
+for (i in 1:length(BR_grouped.list)) {
+  names(BR_grouped.list)[i] <- BR_grouped.list[[i]]$v000[1]
+}
+
+
+# df_list.bkp <- df_list
+# dfBR_list.bkp <- dfBR_list
+
+# df_list <- df_list.bkp
+# dfBR_list <- dfBR_list.bkp
+
+
+
+
+df_list <- lapply(names(df_list), function(svyname) {
+  
+  df_list[[svyname]]$child_bidx <- NA
+  df_list[[svyname]]$child_bidx <- paste(df_list[[svyname]]$femaleID, "1", sep = "_")
+  
+  if (svyname %in% names(dfBR_list)) {
+    # get the grouped data
+    BR_grouped <- BR_grouped.list[[svyname]]
+    
+    # filter to the youngest child
+    BR_youngestChild <- filter(dfBR_list[[svyname]], bidx == 1)
+    # remove duplicated variables
+    BR_youngestChild <- preMergeTrim(df_list[[svyname]], BR_youngestChild, by = "child_bidx")
+    
+    
+    # merge the grouped data into the female data
+    df_list[[svyname]] <- merge(df_list[[svyname]], BR_youngestChild, by = "child_bidx", all.x = T, all.y = F, suffixes = c("", ".br1"))
+    ir_lvl_merge <- merge(df_list[[svyname]], BR_grouped, by = "femaleID", all.x = T, all.y = F, suffixes = c("", ".br"))
+  } else {
+    ir_lvl_merge <- df_list[[svyname]]
+  }
+  
+  return(ir_lvl_merge)
+  
+})
+
+# Name them according to 3 digit survey code
+for (i in 1:length(df_list)) {
+  names(df_list)[i] <- df_list[[i]]$v000[1]
+}
+
+# save
+save(df_list, file = file.path(getwd(), "data", "cleanIR_data_merged.Rdata"))
+
+
+```
+
+
+```{r mergeBRtoKR}
+
+# df_list <- df_list[is.null(df_list)]
+
+if (!exists("dfKR_list")) {
+  load(file.path(getwd(), "data", "cleanKR.Rdata"))
+}
+if (!exists("dfBR_list")) {
+  load(file.path(getwd(), "data", "cleanBR.Rdata"))
+}
+
+dfKR_list <- lapply(names(dfKR_list), function(svyname) {
+  
+  # dfKR_list[[svyname]]$childID <- paste(dfKR_list[[svyname]]$femaleID, dfKR_list[[svyname]]$bord, sep = "_")
+  
+  if (svyname %in% names(dfBR_list)) {
+    # get the grouped data
+    BR_grouped <- BR_grouped.list[[svyname]]
+    # merge the grouped data into the female data
+    kr_lvl_merge <- merge(dfKR_list[[svyname]], BR_grouped, by = "femaleID", all.x = T, all.y = F, suffixes = c("", ".br"))
+    kr_lvl_merge <- merge(kr_lvl_merge, dfBR_list[[svyname]], by = "childID", all.x = T, all.y = F, suffixes = c("", ".brlvl"))
+    
+  } else {
+    kr_lvl_merge <- dfKR_list[[svyname]]
+  }
+  
+  return(kr_lvl_merge)
+  
+})
+
+# Name them according to 3 digit survey code
+for (i in 1:length(dfKR_list)) {
+  names(dfKR_list)[i] <- dfKR_list[[i]]$v000[1]
+}
+
+# save
+save(dfKR_list, file = file.path(getwd(), "data", "cleanKR_data_sansIR.Rdata"))
+
+
+```
+
+### Maternal mortality processing
+
+```{r mmProcess}
+
+if (!exists("IRdata")) {
+  load(file.path(getwd(), "data", "cleanIR_data_merged.Rdata"))
+}
+
+#  # filter down to datasets with maternal mortality
+# df_list <- df_list[names(df_list) %in% dhs7_mm.vec]
+
+importAnalysisObjects <- c(
+  'df_list',
+  'mmExtractClean',
+  'cleanBR',
+  'sibatIRlvl'
+)
+
+# age differences model
+cl <- makeCluster(n.cores)
+## Step 2: Load the necessary R package(s)
+## N.B. length(cl) is the number of child processes
+##      in the cluster 
+par.setup <- parLapply( cl, 1:length(cl),
+                        function(xx) {
+                          require(dplyr)
+                          require(labelled)
+                          require(lubridate)
+                        })
+## Step 3: Distribute the necessary R objects 
+clusterExport( cl, importAnalysisObjects )
+
+## Step 4: Do the computation
+# Female datasets
+## basic processing to create MM dataframes
+dfMM.list <- parLapplyLB(cl, df_list, mmExtractClean)
+
+## make sure to name it!
+for (i in 1:length(dfMM.list)) {
+  names(dfMM.list)[i] <- dfMM.list[[i]]$v000[1]
+}
+
+
+dfMM_IRlvl.list <- parLapplyLB(cl, dfMM.list, sibatIRlvl)
+
+## make sure to name it!
+for (i in 1:length(dfMM_IRlvl.list)) {
+  names(dfMM_IRlvl.list)[i] <- dfMM_IRlvl.list[[i]]$v000[1]
+}
+
+
+
+## Step 5: Remember to stop the cluster!
+stopCluster(cl)
+rm(par.setup)
+
+
+# merge this data back into IR data
+df_list <- lapply(names(df_list), function(svyname) {
+  
+  # svyname <- "MW7"
+  
+  if (svyname %in% names(dfMM_IRlvl.list)) {
+    # get the grouped data
+    MM_grouped <- dfMM_IRlvl.list[[svyname]]
+    
+    MM_trim.df <- preMergeTrim(df_list[[svyname]], MM_grouped, "femaleID")
+    
+    rm(MM_grouped)
+    
+    # merge the grouped data into the female data
+    ir_lvl_merge <- merge(df_list[[svyname]], MM_trim.df, by = "femaleID", all.x = T, all.y = F, suffixes = c("", ".mm"))
+    
+  } else {
+    ir_lvl_merge <- df_list[[svyname]]
+  }
+  
+  return(ir_lvl_merge)
+  
+})
+
+# Name them according to 3 digit survey code
+for (i in 1:length(df_list)) {
+  names(df_list)[i] <- df_list[[i]]$v000[1]
+}
+
+
+save(list=c("df_list", "dfMM.list", "dfMM_IRlvl.list"), file = file.path(getwd(), "data", "cleanIR_data.Rdata"))
+
+```
+
+
+
+```{r IRCleantoBR}
+
+# file = file.path(getwd(), "data", "cleanBR.Rdata")
+
+
+# merge this data back into IR data
+dfBR_list <- lapply(names(dfBR_list), function(svyname) {
+  
+  # svyname <- "MW7"
+  
+  if (svyname %in% names(df_list)) {
+    # get the grouped data
+    IR2BR_trim.df <- preMergeTrim(dfBR_list[[svyname]], df_list[[svyname]], "femaleID")
+    
+    # merge the grouped data into the female data
+    br_lvl_merge <- merge(dfBR_list[[svyname]], IR2BR_trim.df, by = "femaleID", all.x = T, all.y = F, suffixes = c("", ".ir"))
+    
+  } else {
+    br_lvl_merge <- dfBR_list[[svyname]]
+  }
+  
+  return(br_lvl_merge)
+  
+})
+
+# Name them according to 3 digit survey code
+for (i in 1:length(dfBR_list)) {
+  names(dfBR_list)[i] <- dfBR_list[[i]]$v000[1]
+}
+
+
+save(list=c("dfBR_list"), file = file.path(getwd(), "data", "cleanBR_data.Rdata"))
+
+```
+
+
+
+
+
+
+
+

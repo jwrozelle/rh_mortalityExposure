@@ -1,0 +1,57 @@
+---
+title: "Functions"
+format: html
+editor: visual
+---
+
+# Functions
+
+## cleaning functions
+
+```{r}
+
+# Cleaning
+source(file.path("R", "ieClean.R"))
+source(file.path("R", "krClean.R"))
+source(file.path("R", "cleanBR.R"))
+source(file.path("R", "cleanKR_vaxx.R"))
+
+source(file.path("R", "normalizeAgeAtBirth.R"))
+
+source(file.path("R", "BRatIRlevel.R"))
+source(file.path("R", "preMergeTrim.R"))
+source(file.path("R", "mmExtractClean.R"))
+
+source(file.path("R", "extractByID.R"))
+source(file.path("R", "extractByRC.R"))
+
+# int_timing_vars
+source(file.path("R", "int_timing_vars.R"))
+# addInterviewCount
+source(file.path("R", "addInterviewCount.R"))
+# makefwdf
+source(file.path("R", "makefwdf.R"))
+
+# Summary functions
+source(file.path("R", "continuous_sum.R"))
+source(file.path("R", "modelAndTable.R"))
+source(file.path("R", "parRunModel.R"))
+source(file.path("R", "modelListWideTables.R"))
+
+
+
+```
+
+## Model functions
+
+```{r modelFunctions}
+
+# preliminary multilevel models for different health outcomes
+source(file.path("R", "models","feverDay_fit.R"))
+source(file.path("R", "models", "feverCare_fit.R"))
+# source(file.path("R", "models", "anyCare_fit.R"))
+source(file.path("R", "models", "anc4_fits.R"))
+source(file.path("R", "models", "pncNB_fits.R"))
+source(file.path("R", "models", "fbd_fits.R"))
+
+```

@@ -1,0 +1,2599 @@
+---
+title: "Analysis"
+format: html
+editor: visual
+---
+
+## Final Models
+
+```{r loadMW7Environ, include = F}
+
+# load libraries used
+library(stargazer)
+library(dplyr)
+library(lme4)
+library(labeling)
+library(labelled)
+library(lmtest)
+# library(future)
+# library(future.apply)
+library(parallel)
+library(texreg)
+library(ggplot2)
+library(scales)
+
+# load data
+if (!exists("dfKR_list")) {
+  # load(file.path(getwd(), "data", "cleanKR_data.Rdata"))
+    load(file.path("data", "cleanKR_data_sansIR.Rdata"))
+  }
+if (!exists("df_list")) {
+  load(file.path(getwd(), "data", "cleanIR_data.Rdata"))
+}
+
+if (!exists("dfBR_list")) {
+  load(file.path(getwd(), "data", "cleanBR_data.Rdata"))
+}
+
+# load necessary functions
+# preliminary multilevel models for different health outcomes
+source(file.path("R", "models","feverDay_fit.R"))
+source(file.path("R", "models", "feverCare_fit.R"))
+# source(file.path("R", "models", "anyCare_fit.R"))
+source(file.path("R", "models", "anc4_fits.R"))
+source(file.path("R", "models", "pncNB_fits.R"))
+source(file.path("R", "models", "ancCount_fits.R"))
+source(file.path("R", "models", "fbd_fits.R"))
+
+source(file.path("R", "models", "anc4_int_fits.R"))
+source(file.path("R", "models", "pncNB_int_fits.R"))
+source(file.path("R", "models", "fbd_int_fits.R"))
+
+source(file.path("R", "parRunModel.R"))
+source(file.path("R", "modelListWideTables.R"))
+source(file.path("R", "mmExtractClean.R"))
+source(file.path("R", "preMergeTrim.R"))
+
+source(file.path("R", "model_me.R"))
+
+
+
+IRdata <- df_list$MW7
+KRdata <- dfKR_list$MW7
+BRdata <- dfBR_list$MW7
+
+# maternal mortality data
+MMdata <- mmExtractClean(IRdata)
+
+# add sibling info
+BRdata <- addSib2BR(BRdata, MMdata)
+
+
+IRdata$prec_anyDeath <- as.logical(IRdata$prec_anyDeath)
+IRdata$prec_infDeath <- as.logical(IRdata$prec_infDeath)
+IRdata$prec_neoDeath <- as.logical(IRdata$prec_neoDeath)
+IRdata$prec_u5Death <- as.logical(IRdata$prec_u5Death)
+IRdata$rural <- as.logical(IRdata$rural)
+IRdata$everUnion <- as.logical(IRdata$everUnion)
+
+BRdata$prec_anyDeath <- as.logical(BRdata$prec_anyDeath)
+BRdata$prec_infDeath <- as.logical(BRdata$prec_infDeath)
+BRdata$prec_neoDeath <- as.logical(BRdata$prec_neoDeath)
+BRdata$prec_u5Death <- as.logical(BRdata$prec_u5Death)
+BRdata$rural <- as.logical(BRdata$rural)
+BRdata$everUnion <- as.logical(BRdata$everUnion)
+BRdata$prev_sd_del_2mnth_count <- as.logical(BRdata$prev_sd_del_2mnth_count)
+BRdata$prev_sd_del_b4Dur_ever <- as.logical(BRdata$prev_sd_del_b4Dur_ever)
+BRdata$rh_anc_4vs <- as.logical(as.numeric(BRdata$rh_anc_4vs))
+BRdata$rh_del_fbd <- as.logical(BRdata$rh_del_fbd)
+
+
+# age specific death variables
+#   IRdata
+IRdata$prev_onlyNeo <- NA
+IRdata$prev_onlyNeo <- ifelse(IRdata$prec_neoDeath == TRUE, TRUE, FALSE)
+IRdata$prev_onlyInf <- NA
+IRdata$prev_onlyInf <- ifelse(IRdata$prec_infDeath == TRUE & IRdata$prec_neoDeath == FALSE, TRUE, FALSE)
+IRdata$prev_onlyU5 <- NA
+IRdata$prev_onlyU5 <- ifelse(IRdata$prec_u5Death == TRUE & IRdata$prec_infDeath == FALSE, TRUE, FALSE)
+IRdata$prev_onlyOther <- NA
+IRdata$prev_onlyOther <- ifelse(IRdata$prec_anyDeath == TRUE & IRdata$prec_u5Death == FALSE, TRUE, FALSE)
+
+#   BRdata
+BRdata$prev_onlyNeo <- NA
+BRdata$prev_onlyNeo <- ifelse(BRdata$prec_neoDeath == TRUE, TRUE, FALSE)
+BRdata$prev_onlyInf <- NA
+BRdata$prev_onlyInf <- ifelse(BRdata$prec_infDeath == TRUE & BRdata$prec_neoDeath == FALSE, TRUE, FALSE)
+BRdata$prev_onlyU5 <- NA
+BRdata$prev_onlyU5 <- ifelse(BRdata$prec_u5Death == TRUE & BRdata$prec_infDeath == FALSE, TRUE, FALSE)
+BRdata$prev_onlyOther <- NA
+BRdata$prev_onlyOther <- ifelse(BRdata$prec_anyDeath == TRUE & BRdata$prec_u5Death == FALSE, TRUE, FALSE)
+BRdata$prev_nonNeoU5 <- NA
+BRdata$prev_nonNeoU5 <- ifelse(BRdata$prec_u5Death == TRUE & BRdata$prec_neoDeath == FALSE, TRUE, FALSE)
+
+#   KRdata
+KRdata$prev_onlyNeo <- NA
+KRdata$prev_onlyNeo <- ifelse(KRdata$prec_neoDeath == TRUE, TRUE, FALSE)
+KRdata$prev_onlyInf <- NA
+KRdata$prev_onlyInf <- ifelse(KRdata$prec_infDeath == TRUE & KRdata$prec_neoDeath == FALSE, TRUE, FALSE)
+KRdata$prev_onlyU5 <- NA
+KRdata$prev_onlyU5 <- ifelse(KRdata$prec_u5Death == TRUE & KRdata$prec_infDeath == FALSE, TRUE, FALSE)
+KRdata$prev_onlyOther <- NA
+KRdata$prev_onlyOther <- ifelse(KRdata$prec_anyDeath == TRUE & KRdata$prec_u5Death == FALSE, TRUE, FALSE)
+KRdata$prev_nonNeoU5 <- NA
+KRdata$prev_nonNeoU5 <- ifelse(KRdata$prec_u5Death == TRUE & KRdata$prec_neoDeath == FALSE, TRUE, FALSE)
+
+
+
+# additional descriptives
+## Age
+BRdata$atCBirth_age <- NA
+BRdata$atCBirth_age <- BRdata$age_r - (BRdata$age/12)
+
+BRdata$atCBirth_5grp <- NA
+BRdata$atCBirth_5grp <- ifelse(BRdata$atCBirth_age < 15, 0, BRdata$atCBirth_5grp)
+BRdata$atCBirth_5grp <- ifelse(BRdata$atCBirth_age >= 15 & BRdata$atCBirth_age < 20, 1, BRdata$atCBirth_5grp)
+BRdata$atCBirth_5grp <- ifelse(BRdata$atCBirth_age >= 20 & BRdata$atCBirth_age < 25, 2, BRdata$atCBirth_5grp)
+BRdata$atCBirth_5grp <- ifelse(BRdata$atCBirth_age >= 25 & BRdata$atCBirth_age < 30, 3, BRdata$atCBirth_5grp)
+BRdata$atCBirth_5grp <- ifelse(BRdata$atCBirth_age >= 30 & BRdata$atCBirth_age < 35, 4, BRdata$atCBirth_5grp)
+BRdata$atCBirth_5grp <- ifelse(BRdata$atCBirth_age >= 35 & BRdata$atCBirth_age < 40, 5, BRdata$atCBirth_5grp)
+BRdata$atCBirth_5grp <- ifelse(BRdata$atCBirth_age >= 40 & BRdata$atCBirth_age < 45, 6, BRdata$atCBirth_5grp)
+BRdata$atCBirth_5grp <- ifelse(BRdata$atCBirth_age >= 45 & BRdata$atCBirth_age < 50, 7, BRdata$atCBirth_5grp)
+
+BR.df <- preMergeTrim(IRdata, BRdata, by = "childID")
+IRdata_desc <- merge(IRdata, BR.df, by = "childID", all.x = T, all.y = F)
+
+## Age at birth for IR data
+IRdata_desc$atCBirth_age <- NA
+IRdata_desc$atCBirth_age <- IRdata_desc$age_r - (IRdata_desc$age/12)
+
+IRdata_desc$atCBirth_5grp <- NA
+IRdata_desc$atCBirth_5grp <- ifelse(IRdata_desc$atCBirth_age < 15, 0, IRdata_desc$atCBirth_5grp)
+IRdata_desc$atCBirth_5grp <- ifelse(IRdata_desc$atCBirth_age >= 15 & IRdata_desc$atCBirth_age < 20, 1, IRdata_desc$atCBirth_5grp)
+IRdata_desc$atCBirth_5grp <- ifelse(IRdata_desc$atCBirth_age >= 20 & IRdata_desc$atCBirth_age < 25, 2, IRdata_desc$atCBirth_5grp)
+IRdata_desc$atCBirth_5grp <- ifelse(IRdata_desc$atCBirth_age >= 25 & IRdata_desc$atCBirth_age < 30, 3, IRdata_desc$atCBirth_5grp)
+IRdata_desc$atCBirth_5grp <- ifelse(IRdata_desc$atCBirth_age >= 30 & IRdata_desc$atCBirth_age < 35, 4, IRdata_desc$atCBirth_5grp)
+IRdata_desc$atCBirth_5grp <- ifelse(IRdata_desc$atCBirth_age >= 35 & IRdata_desc$atCBirth_age < 40, 5, IRdata_desc$atCBirth_5grp)
+IRdata_desc$atCBirth_5grp <- ifelse(IRdata_desc$atCBirth_age >= 40 & IRdata_desc$atCBirth_age < 45, 6, IRdata_desc$atCBirth_5grp)
+IRdata_desc$atCBirth_5grp <- ifelse(IRdata_desc$atCBirth_age >= 45 & IRdata_desc$atCBirth_age < 50, 7, IRdata_desc$atCBirth_5grp)
+
+
+# saved the processed data
+save(list=c("IRdata", "KRdata", "BRdata"), file="data/Malawi_dfs.Rdata")
+
+
+IRdata_SecondChild <- filter(
+  IRdata_desc, 
+  bord == 2 & 
+    # !is.na(prev_sd_del_b4Dur_ever) & 
+    !is.na(wealthIndex) & 
+    !is.na(v133) &
+    !is.na(rural) & 
+    !is.na(everUnion) & 
+    !is.na(v001) & 
+    !is.na(rh_anc_4vs)
+  )
+
+BRdata_SecondChild <- filter(
+  BRdata,
+  bord == 2 &
+    # !is.na(prev_sd_del_b4Dur_ever) & 
+    !is.na(wealthIndex) & 
+    !is.na(v133) &
+    !is.na(rural) & 
+    !is.na(everUnion) & 
+    !is.na(v001) & 
+    !is.na(rh_del_fbd)
+)
+
+IRdata_sisExposure <- filter(
+  IRdata_desc,
+  sisMatRisk_known == 1 &
+    !is.na(prev_sd_del_b4Dur_ever) & 
+    !is.na(wealthIndex) & 
+    !is.na(v133) &
+    !is.na(rural) & 
+    !is.na(everUnion) & 
+    !is.na(v001) & 
+    !is.na(rh_anc_4vs)
+)
+
+BRdata_sisExposure <- filter(
+  BRdata,
+  sisMatRisk_known == 1 &
+    !is.na(prev_sd_del_b4Dur_ever) & 
+    !is.na(wealthIndex) & 
+    !is.na(v133) &
+    !is.na(rural) & 
+    !is.na(everUnion) & 
+    !is.na(v001) & 
+    !is.na(rh_del_fbd)
+)
+
+modelData.list <- list(
+  anc_prevChild = IRdata_SecondChild, 
+  fbd_prevChild = BRdata_SecondChild,
+  anc_sisExposure = IRdata_sisExposure,
+  fbd_sisExposure = BRdata_sisExposure
+  )
+
+
+```
+
+### Antenatal care 4+ models
+
+#### Previous sister's death
+
+```{r fm_anc_prevSis.model}
+
+# # filter to second or later birth order
+# MMdata <- mmExtractClean(IRdata)
+# inputBR.df <- addSib2BR(BRdata, MMdata)
+# inputBR.df <- filter(BRdata, bidx == 1)
+
+
+inputBR.df <- preMergeTrim(IRdata, BRdata, by = "childID")
+
+inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+inputData <- filter(inputData, sisMatRisk_known == 1)
+  
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+inputData$firstBirth <- NA
+inputData$firstBirth <- ifelse(inputData$bord == 1, 1, 0)
+
+inputData$sisMatDeath_ever <- NA
+inputData$sisMatDeath_ever <- ifelse(inputData$sd_del_b4Dur_ever %in% 1, 1, 0)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_anc_4vs ~ 
+    # timing of death
+    # sisMatDeath_ever * 
+    prev_sd_del_b4Dur_ever +
+    # prev_sd_del_b4Dur_ever + 
+    bord +
+    # bord2 +
+    # bord3 +
+    # bord4 +
+    # bord5 +
+    # bord6p +
+    # sd_whilePreg_ever +
+    # sd_del_during_ever +
+    # sd_del_6wks_ever +
+    # sd_del_2mnth_ever +
+    # demographic variables
+    # dummy(v101) +
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    # first birth
+    
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_anc_prevSis.model <- modelFit
+save(fm_anc_prevSis.model, file = file.path("data", "fm_anc_prevSis.Rdata"))
+
+summary(modelFit)
+
+```
+
+#### Previous sister's death (inclusive of any sister)
+
+```{r fm_anc_prev_u5_anySister}
+
+# # filter to second or later birth order
+# MMdata <- mmExtractClean(IRdata)
+# inputBR.df <- addSib2BR(BRdata, MMdata)
+# inputBR.df <- filter(BRdata, bidx == 1)
+
+
+inputBR.df <- preMergeTrim(IRdata, BRdata, by = "childID")
+
+inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+inputData <- filter(inputData, sister_count >= 1)
+  
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+inputData$firstBirth <- NA
+inputData$firstBirth <- ifelse(inputData$bord == 1, 1, 0)
+
+inputData$sisMatDeath_ever <- NA
+inputData$sisMatDeath_ever <- ifelse(inputData$sd_del_b4Dur_ever %in% 1, 1, 0)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_anc_4vs ~ 
+    # timing of death
+    prev_sd_del_b4Dur_ever +
+    bord +
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_anc_prevSis_anySister.model <- modelFit
+save(fm_anc_prevSis_anySister.model, file = file.path("data", "fm_anc_prevSis_anySister.Rdata"))
+
+summary(modelFit)
+
+```
+
+#### Previous sister's death (Interaction)
+
+```{r fm_anc_prevSis_interaction}
+
+# # filter to second or later birth order
+# MMdata <- mmExtractClean(IRdata)
+# inputBR.df <- addSib2BR(BRdata, MMdata)
+# inputBR.df <- filter(BRdata, bidx == 1)
+
+
+inputBR.df <- preMergeTrim(IRdata, BRdata, by = "childID")
+
+inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+inputData <- filter(inputData, sisMatRisk_known == 1)
+  
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+inputData$firstBirth <- NA
+inputData$firstBirth <- ifelse(inputData$bord == 1, 1, 0)
+
+inputData$sisMatDeath_ever <- NA
+inputData$sisMatDeath_ever <- ifelse(inputData$sd_del_b4Dur_ever %in% 1, 1, 0)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_anc_4vs ~ 
+    # timing of death
+    prev_sd_del_b4Dur_ever * firstBirth +
+    # demographic variables
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_anc_prevSis_interaction.model <- modelFit
+save(fm_anc_prevSis_interaction.model, file = file.path("data", "fm_anc_prevSis_interaction.Rdata"))
+
+summary(modelFit)
+
+```
+
+#### previous own child under 5 death
+
+```{r}
+
+inputBR.df <- preMergeTrim(IRdata, BRdata, by = "childID")
+
+inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+inputData <- filter(inputData, bord > 1)
+  
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+inputData$firstBirth <- NA
+inputData$firstBirth <- ifelse(inputData$bord == 1, 1, 0)
+
+inputData$sisMatDeath_ever <- NA
+inputData$sisMatDeath_ever <- ifelse(inputData$sd_del_b4Dur_ever %in% 1, 1, 0)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_anc_4vs ~ 
+    # timing of death
+    # sisMatDeath_ever * 
+    prec_u5Death +
+    # prev_sd_del_b4Dur_ever + 
+    bord +
+    # demographic variables
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_anc_prevu5.model <- modelFit
+save(fm_anc_prevu5.model, file = file.path("data", "fm_anc_prevu5.Rdata"))
+
+summary(modelFit)
+
+```
+
+
+#### previous own child under 5 death (Birth order = 2)
+
+```{r}
+
+inputBR.df <- preMergeTrim(IRdata, BRdata, by = "childID")
+
+inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+inputData <- filter(inputData, bord == 2)
+  
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+inputData$firstBirth <- NA
+inputData$firstBirth <- ifelse(inputData$bord == 1, 1, 0)
+
+inputData$sisMatDeath_ever <- NA
+inputData$sisMatDeath_ever <- ifelse(inputData$sd_del_b4Dur_ever %in% 1, 1, 0)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_anc_4vs ~ 
+    # timing of death
+    # sisMatDeath_ever * 
+    prec_u5Death +
+    # prev_sd_del_b4Dur_ever + 
+    # bord +
+    # bord2 +
+    # bord3 +
+    # bord4 +
+    # bord5 +
+    # bord6p +
+    # sd_whilePreg_ever +
+    # sd_del_during_ever +
+    # sd_del_6wks_ever +
+    # sd_del_2mnth_ever +
+    # demographic variables
+    # dummy(v101) +
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    # first birth
+    
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_anc_prevu5_bord2.model <- modelFit
+save(fm_anc_prevu5_bord2.model, file = file.path("data", "fm_anc_prevu5_bord2.Rdata"))
+
+summary(modelFit)
+
+```
+
+
+#### Previous own child infant death
+
+```{r}
+inputBR.df <- preMergeTrim(IRdata, BRdata, by = "childID")
+
+inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+inputData <- filter(inputData, bord > 1)
+  
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+# inputData$firstBirth <- NA
+# inputData$firstBirth <- ifelse(inputData$bord == 1, 1, 0)
+# 
+# inputData$sisMatDeath_ever <- NA
+# inputData$sisMatDeath_ever <- ifelse(inputData$sd_del_b4Dur_ever %in% 1, 1, 0)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_anc_4vs ~ 
+    # timing of death
+    # sisMatDeath_ever * 
+    prec_infDeath +
+    # prev_sd_del_b4Dur_ever + 
+    bord +
+    # bord2 +
+    # bord3 +
+    # bord4 +
+    # bord5 +
+    # bord6p +
+    # sd_whilePreg_ever +
+    # sd_del_during_ever +
+    # sd_del_6wks_ever +
+    # sd_del_2mnth_ever +
+    # demographic variables
+    # dummy(v101) +
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    # first birth
+    
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_anc_prevInf.model <- modelFit
+save(fm_anc_prevInf.model, file = file.path("data", "fm_anc_prevInf.Rdata"))
+
+summary(modelFit)
+```
+
+#### Previous own child infant death (Birth order = 2)
+
+```{r}
+inputBR.df <- preMergeTrim(IRdata, BRdata, by = "childID")
+
+inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+inputData <- filter(inputData, bord == 2)
+  
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+# inputData$firstBirth <- NA
+# inputData$firstBirth <- ifelse(inputData$bord == 1, 1, 0)
+# 
+# inputData$sisMatDeath_ever <- NA
+# inputData$sisMatDeath_ever <- ifelse(inputData$sd_del_b4Dur_ever %in% 1, 1, 0)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_anc_4vs ~ 
+    # timing of death
+    # sisMatDeath_ever * 
+    prec_infDeath +
+    # prev_sd_del_b4Dur_ever + 
+    # bord +
+    # bord2 +
+    # bord3 +
+    # bord4 +
+    # bord5 +
+    # bord6p +
+    # sd_whilePreg_ever +
+    # sd_del_during_ever +
+    # sd_del_6wks_ever +
+    # sd_del_2mnth_ever +
+    # demographic variables
+    # dummy(v101) +
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    # first birth
+    
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_anc_prevInf_bord2.model <- modelFit
+save(fm_anc_prevInf_bord2.model, file = file.path("data", "fm_anc_prevInf_bord2.Rdata"))
+
+summary(modelFit)
+```
+
+#### Previous own child neonatal death
+
+```{r}
+inputBR.df <- preMergeTrim(IRdata, BRdata, by = "childID")
+
+inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+inputData <- filter(inputData, bord > 1)
+  
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+# inputData$firstBirth <- NA
+# inputData$firstBirth <- ifelse(inputData$bord == 1, 1, 0)
+# 
+# inputData$sisMatDeath_ever <- NA
+# inputData$sisMatDeath_ever <- ifelse(inputData$sd_del_b4Dur_ever %in% 1, 1, 0)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_anc_4vs ~ 
+    # timing of death
+    # sisMatDeath_ever * 
+    prec_neoDeath +
+    # prev_sd_del_b4Dur_ever + 
+    bord +
+    # bord2 +
+    # bord3 +
+    # bord4 +
+    # bord5 +
+    # bord6p +
+    # sd_whilePreg_ever +
+    # sd_del_during_ever +
+    # sd_del_6wks_ever +
+    # sd_del_2mnth_ever +
+    # demographic variables
+    # dummy(v101) +
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    # first birth
+    
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_anc_prevNeo.model <- modelFit
+
+save(fm_anc_prevNeo.model, file = file.path("data", "fm_anc_prevNeo.Rdata"))
+
+summary(modelFit)
+```
+
+
+#### Previous own child neonatal death (Birth order == 2)
+
+```{r}
+inputBR.df <- preMergeTrim(IRdata, BRdata, by = "childID")
+
+inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+inputData <- filter(inputData, bord ==2)
+  
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+# inputData$firstBirth <- NA
+# inputData$firstBirth <- ifelse(inputData$bord == 1, 1, 0)
+# 
+# inputData$sisMatDeath_ever <- NA
+# inputData$sisMatDeath_ever <- ifelse(inputData$sd_del_b4Dur_ever %in% 1, 1, 0)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_anc_4vs ~ 
+    # timing of death
+    # sisMatDeath_ever * 
+    prec_neoDeath +
+    # prev_sd_del_b4Dur_ever + 
+    # bord +
+    # bord2 +
+    # bord3 +
+    # bord4 +
+    # bord5 +
+    # bord6p +
+    # sd_whilePreg_ever +
+    # sd_del_during_ever +
+    # sd_del_6wks_ever +
+    # sd_del_2mnth_ever +
+    # demographic variables
+    # dummy(v101) +
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    # first birth
+    
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_anc_prevNeo_bord2.model <- modelFit
+
+save(fm_anc_prevNeo_bord2.model, file = file.path("data", "fm_anc_prevNeo_bord2.Rdata"))
+
+summary(modelFit)
+```
+
+
+#### Tables
+
+```{r}
+# load models
+load(file.path("data", "fm_anc_prevu5.Rdata"))
+load(file.path("data", "fm_anc_prevInf.Rdata"))
+load(file.path("data", "fm_anc_prevNeo.Rdata"))
+load(file.path("data", "fm_fbd_prevu5_models.Rdata"))
+load(file.path("data", "fm_fbd_prevInf_models.Rdata"))
+load(file.path("data", "fm_fbd_prevNeo_models.Rdata"))
+
+
+
+texreg(list(fm_anc_prevu5.model, fm_anc_prevInf.model, fm_anc_prevNeo.model, fm_fbd_prevu5.model, fm_fbd_prevInf.model, fm_fbd_prevNeo.model),
+       custom.coef.map = list(
+         "(Intercept)" = "(Intercept)",
+         "prec_u5DeathTRUE" = "Under five death exposure",
+         "prec_infDeath" = "Infant death exposure",
+         "prec_infDeathTRUE" = "Infant death exposure",
+         "prec_neoDeath" = "Neonatal death exposure",
+         "prec_neoDeathTRUE" = "Neonatal death exposure",
+         "prev_sd_del_b4Dur_ever" = "Sister's Death during pregnancy / delivery",
+         "bord" = "Parity",
+         "wealthIndex" = "Wealth index",
+         "age_r_atCBirth_normalized" = "Age at birth (normalized)",
+         "rural" = "Rural residency",
+         "v133" = "Years of education",
+         "everUnion" = "Ever married / in union",
+         "everUnionTRUE" = "Ever married / in union"
+         )
+       )
+
+```
+
+
+### Facility Based Delivery Models
+
+#### Previous sister's death
+
+```{r fm_fbd_prevSis}
+# # filter to second or later birth order
+# MMdata <- mmExtractClean(IRdata)
+# inputBR.df <- addSib2BR(BRdata, MMdata)
+# # inputBR.df <- filter(inputBR.df, bidx == 1)
+# # 
+# # inputBR.df <- preMergeTrim(IRdata, inputBR.df, by = "childID")
+# # 
+# # inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+# inputData <- filter(BRdata, bord > 1) # filter out first births
+
+# CONSTRUCT INPUT DATASET ####
+#   Filter to only women with a sister of reproductive age
+inputData <- filter(BRdata, sisMatRisk_known == 1)
+# inputData <- BRdata
+
+#   Get information about sibling's death prior to child's birth
+# inputData <- addSib2BR(inputData, MMdata)
+
+# inputBR.df <- filter(BRdata, bidx == 1)
+
+# inputData <- filter(inputData, bord == 1)
+
+# calculate necessary variables
+#   date of interview
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+# inputData$firstBirth <- NA
+# inputData$firstBirth <- ifelse(inputData$bord == 1, 1, 0)
+# 
+# inputData$sisMatDeath_ever <- NA
+# inputData$sisMatDeath_ever <- ifelse(inputData$sd_del_b4Dur_ever %in% 1, 1, 0)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_del_fbd ~ # confirmed to be children aged 0 - 59 months
+    # timing of death
+    # sisMatDeath_ever * 
+    prev_sd_del_b4Dur_ever +
+    bord +
+    # prev_sd_del_b4Dur_ever + 
+    # bord +
+    # bord2 +
+    # bord3 +
+    # bord4 +
+    # bord5 +
+    # bord6p +
+    # sd_whilePreg_ever +
+    # sd_del_during_ever +
+    # sd_del_6wks_ever +
+    # sd_del_2mnth_ever +
+    # demographic variables
+    # dummy(v101) +
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    # first birth
+    
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_fbd_prevSis.model <- modelFit
+
+save(list = c("fm_fbd_prevSis_full.model", "fm_fbd_prevSis.model", "fm_fbd_prevSis_interaction.model"), file = file.path("data", "fm_fbd_prevSis_models.Rdata"))
+# load(file.path("data", "fm_fbd_prevSis_models.Rdata"))
+
+texreg(list(fm_fbd_prevSis_full.model, fm_fbd_prevSis.model))
+
+
+summary(modelFit)
+```
+
+#### Previous sister's death (if mother has any sister, excludes unknown death cause)
+
+```{r fm_fbd_prevSis_anySister}
+# # filter to second or later birth order
+# MMdata <- mmExtractClean(IRdata)
+# inputBR.df <- addSib2BR(BRdata, MMdata)
+# # inputBR.df <- filter(inputBR.df, bidx == 1)
+# # 
+# # inputBR.df <- preMergeTrim(IRdata, inputBR.df, by = "childID")
+# # 
+# # inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+# inputData <- filter(BRdata, bord > 1) # filter out first births
+
+# CONSTRUCT INPUT DATASET ####
+#   Filter to only women with a sister of reproductive age
+
+# inputData <- filter(BRdata, sisMatRisk_known == 1)
+
+inputData <- filter(BRdata, sister_count >= 1)
+
+# inputData <- BRdata
+
+#   Get information about sibling's death prior to child's birth
+# inputData <- addSib2BR(inputData, MMdata)
+
+# inputBR.df <- filter(BRdata, bidx == 1)
+
+# inputData <- filter(inputData, bord == 1)
+
+# calculate necessary variables
+#   date of interview
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+# inputData$firstBirth <- NA
+# inputData$firstBirth <- ifelse(inputData$bord == 1, 1, 0)
+# 
+# inputData$sisMatDeath_ever <- NA
+# inputData$sisMatDeath_ever <- ifelse(inputData$sd_del_b4Dur_ever %in% 1, 1, 0)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_del_fbd ~ # confirmed to be children aged 0 - 59 months
+    # timing of death
+    # sisMatDeath_ever * 
+    prev_sd_del_b4Dur_ever +
+    bord +
+    # prev_sd_del_b4Dur_ever + 
+    # bord +
+    # bord2 +
+    # bord3 +
+    # bord4 +
+    # bord5 +
+    # bord6p +
+    # sd_whilePreg_ever +
+    # sd_del_during_ever +
+    # sd_del_6wks_ever +
+    # sd_del_2mnth_ever +
+    # demographic variables
+    # dummy(v101) +
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    # first birth
+    
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_fbd_prevSis_anySister.model <- modelFit
+
+# save(list = c("fm_fbd_prevSis_full.model", "fm_fbd_prevSis.model", "fm_fbd_prevSis_interaction.model"), file = file.path("data", "fm_fbd_prevSis_models.Rdata"))
+save(fm_fbd_prevSis_anySister.model, file = file.path("data", "fm_fbd_prevSis_anySister.Rdata"))
+# load(file.path("data", "fm_fbd_prevSis_models.Rdata"))
+
+# texreg(list(fm_fbd_prevSis_full.model, fm_fbd_prevSis.model))
+
+
+summary(modelFit)
+```
+#### Previous sister's death (Interaction)
+
+```{r fm_fbd_prevSis}
+# # filter to second or later birth order
+# MMdata <- mmExtractClean(IRdata)
+# inputBR.df <- addSib2BR(BRdata, MMdata)
+# # inputBR.df <- filter(inputBR.df, bidx == 1)
+# # 
+# # inputBR.df <- preMergeTrim(IRdata, inputBR.df, by = "childID")
+# # 
+# # inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+# inputData <- filter(BRdata, bord > 1) # filter out first births
+
+# CONSTRUCT INPUT DATASET ####
+#   Filter to only women with a sister of reproductive age
+inputData <- filter(BRdata, sisMatRisk_known == 1)
+# inputData <- BRdata
+
+#   Get information about sibling's death prior to child's birth
+# inputData <- addSib2BR(inputData, MMdata)
+
+# inputBR.df <- filter(BRdata, bidx == 1)
+
+# inputData <- filter(inputData, bord == 1)
+
+# calculate necessary variables
+#   date of interview
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+inputData$firstBirth <- NA
+inputData$firstBirth <- ifelse(inputData$bord == 1, 1, 0)
+# 
+# inputData$sisMatDeath_ever <- NA
+# inputData$sisMatDeath_ever <- ifelse(inputData$sd_del_b4Dur_ever %in% 1, 1, 0)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_del_fbd ~ # confirmed to be children aged 0 - 59 months
+    # timing of death
+    # sisMatDeath_ever * 
+    prev_sd_del_b4Dur_ever * firstBirth +
+    # bord +
+    # prev_sd_del_b4Dur_ever + 
+    # bord +
+    # bord2 +
+    # bord3 +
+    # bord4 +
+    # bord5 +
+    # bord6p +
+    # sd_whilePreg_ever +
+    # sd_del_during_ever +
+    # sd_del_6wks_ever +
+    # sd_del_2mnth_ever +
+    # demographic variables
+    # dummy(v101) +
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    # first birth
+    
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_fbd_prevSis_interaction.model <- modelFit
+
+save(fm_fbd_prevSis_interaction.model, file = file.path("data", "fm_fbd_prevSis_interaction.Rdata"))
+# load(file.path("data", "fm_fbd_prevSis_models.Rdata"))
+
+texreg(list(fm_anc_prevSis_interaction.model, fm_fbd_prevSis_interaction.model), 
+       custom.model.names = c("ANC 4+", "FBD"),
+       custom.coef.map = list(
+         "(Intercept)" = "(Intercept)",
+         "prec_u5Death" = "Under five death exposure",
+         "prec_infDeath" = "Infant death exposure",
+         "prec_neoDeath" = "Neonatal death exposure",
+         "prev_sd_del_b4Dur_ever" = "Sister's Death during pregnancy / delivery",
+         "firstBirth" = "First birth",
+         "prev_sd_del_b4Dur_ever:firstBirth" = "Interaction Sister Death:First Birth",
+         "wealthIndex" = "Wealth index",
+         "age_r_atCBirth_normalized" = "Age at birth (normalized)",
+         "rural" = "Rural residency",
+         "v133" = "Years of education",
+         "everUnion" = "Ever married / in union"))
+
+
+summary(modelFit)
+```
+
+#### Own child under 5
+
+```{r fm_fbd_prevU5}
+
+
+# CONSTRUCT INPUT DATASET ####
+#   Filter to birth order greater than one
+inputData <- filter(BRdata, bord > 1)
+# inputData <- BRdata
+
+#   Get information about sibling's death prior to child's birth
+# inputData <- addSib2BR(inputData, MMdata)
+
+# inputBR.df <- filter(BRdata, bidx == 1)
+
+# inputData <- filter(inputData, bord == 1)
+
+# calculate necessary variables
+#   date of interview
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+# inputData$firstBirth <- NA
+# inputData$firstBirth <- ifelse(inputData$bord == 1, 1, 0)
+# 
+# inputData$sisMatDeath_ever <- NA
+# inputData$sisMatDeath_ever <- ifelse(inputData$sd_del_b4Dur_ever %in% 1, 1, 0)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_del_fbd ~ # confirmed to be children aged 0 - 59 months
+    # timing of death
+    # sisMatDeath_ever * 
+    prec_u5Death +
+    bord +
+    # prev_sd_del_b4Dur_ever + 
+    # bord +
+    # bord2 +
+    # bord3 +
+    # bord4 +
+    # bord5 +
+    # bord6p +
+    # sd_whilePreg_ever +
+    # sd_del_during_ever +
+    # sd_del_6wks_ever +
+    # sd_del_2mnth_ever +
+    # demographic variables
+    # dummy(v101) +
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    # first birth
+    
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_fbd_prevu5.model <- modelFit
+
+save(fm_fbd_prevu5.model, file = file.path("data", "fm_fbd_prevu5_models.Rdata"))
+# load(file.path("data", "fm_fbd_prevSis_models.Rdata"))
+
+
+summary(modelFit)
+```
+
+
+#### Own child under 5 (birth order = 2)
+
+```{r fm_fbd_prevU5}
+# # filter to second or later birth order
+# MMdata <- mmExtractClean(IRdata)
+# inputBR.df <- addSib2BR(BRdata, MMdata)
+# # inputBR.df <- filter(inputBR.df, bidx == 1)
+# # 
+# # inputBR.df <- preMergeTrim(IRdata, inputBR.df, by = "childID")
+# # 
+# # inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+# inputData <- filter(BRdata, bord > 1) # filter out first births
+
+# CONSTRUCT INPUT DATASET ####
+#   Filter to only women with a sister of reproductive age
+inputData <- filter(BRdata, bord == 2)
+# inputData <- BRdata
+
+#   Get information about sibling's death prior to child's birth
+# inputData <- addSib2BR(inputData, MMdata)
+
+# inputBR.df <- filter(BRdata, bidx == 1)
+
+# inputData <- filter(inputData, bord == 1)
+
+# calculate necessary variables
+#   date of interview
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+# inputData$prec_u5Death <- as.logical(inputData$prec_u5Death)
+# inputData$prec_u5Death <- as.logical(inputData$prec_u5Death)
+
+
+# inputData$firstBirth <- NA
+# inputData$firstBirth <- ifelse(inputData$bord == 1, 1, 0)
+# 
+# inputData$sisMatDeath_ever <- NA
+# inputData$sisMatDeath_ever <- ifelse(inputData$sd_del_b4Dur_ever %in% 1, 1, 0)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_del_fbd ~ # confirmed to be children aged 0 - 59 months
+    # timing of death
+    # sisMatDeath_ever * 
+    prec_u5Death +
+    # bord +
+    # prev_sd_del_b4Dur_ever + 
+    # bord +
+    # bord2 +
+    # bord3 +
+    # bord4 +
+    # bord5 +
+    # bord6p +
+    # sd_whilePreg_ever +
+    # sd_del_during_ever +
+    # sd_del_6wks_ever +
+    # sd_del_2mnth_ever +
+    # demographic variables
+    # dummy(v101) +
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    # first birth
+    
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+
+modelFit2 <- GLMMadaptive::mixed_model(
+  fixed = rh_del_fbd ~
+    prec_u5Death +
+    wealthIndex +
+    age_r_atCBirth_normalized +
+    rural +
+    v133 +
+    everUnion,
+  random = ~ 1 | v001,
+  data = inputData,
+  family = binomial()
+)
+
+# modelFit
+summary(modelFit)
+summary(modelFit2)
+
+
+
+fm_fbd_prevu5_bord2.model <- modelFit
+
+sb <- marginaleffects(modelFit)
+# sb2 <- margins::margins(modelFit)
+sb3 <- marginaleffects(modelFit, include_random = F)
+
+fm_fbd_prevu5_bord2.margins <- marginalmeans(fm_fbd_prevu5_bord2.model, variables = "prec_u5Death", type = "response") |> summary()
+
+# 
+summary(sb)
+
+# summary(sb2)
+summary(sb3)
+
+
+save(fm_fbd_prevu5_bord2.model, file = file.path("data", "fm_fbd_prevu5_bord2.Rdata"))
+# load(file.path("data", "fm_fbd_prevSis_models.Rdata"))
+
+
+summary(modelFit)
+
+```
+
+
+#### Own child infant
+
+```{r fm_fbd_prevInf}
+# # filter to second or later birth order
+# MMdata <- mmExtractClean(IRdata)
+# inputBR.df <- addSib2BR(BRdata, MMdata)
+# # inputBR.df <- filter(inputBR.df, bidx == 1)
+# # 
+# # inputBR.df <- preMergeTrim(IRdata, inputBR.df, by = "childID")
+# # 
+# # inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+# inputData <- filter(BRdata, bord > 1) # filter out first births
+
+# CONSTRUCT INPUT DATASET ####
+#   Filter to only women with a sister of reproductive age
+inputData <- filter(BRdata, bord > 1)
+# inputData <- BRdata
+
+#   Get information about sibling's death prior to child's birth
+inputData <- addSib2BR(inputData, MMdata)
+
+# inputBR.df <- filter(BRdata, bidx == 1)
+
+# inputData <- filter(inputData, bord == 1)
+
+# calculate necessary variables
+#   date of interview
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+# inputData$firstBirth <- NA
+# inputData$firstBirth <- ifelse(inputData$bord == 1, 1, 0)
+# 
+# inputData$sisMatDeath_ever <- NA
+# inputData$sisMatDeath_ever <- ifelse(inputData$sd_del_b4Dur_ever %in% 1, 1, 0)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_del_fbd ~ # confirmed to be children aged 0 - 59 months
+    # timing of death
+    # sisMatDeath_ever * 
+    prec_infDeath +
+    bord +
+    # prev_sd_del_b4Dur_ever + 
+    # bord +
+    # bord2 +
+    # bord3 +
+    # bord4 +
+    # bord5 +
+    # bord6p +
+    # sd_whilePreg_ever +
+    # sd_del_during_ever +
+    # sd_del_6wks_ever +
+    # sd_del_2mnth_ever +
+    # demographic variables
+    # dummy(v101) +
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    # first birth
+    
+    (1|v001), 
+  family=binomial,
+  data=inputData,
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_fbd_prevInf.model <- modelFit
+
+save(fm_fbd_prevInf.model, file = file.path("data", "fm_fbd_prevInf_models.Rdata"))
+# load(file.path("data", "fm_fbd_prevSis_models.Rdata"))
+
+
+summary(modelFit)
+```
+
+
+#### Own child infant (Birth order = 2)
+
+```{r fm_fbd_prevInf}
+
+# CONSTRUCT INPUT DATASET ####
+#   Filter to only second children
+inputData <- filter(BRdata, bord == 2)
+# inputData <- BRdata
+
+#   Get information about sibling's death prior to child's birth
+inputData <- addSib2BR(inputData, MMdata)
+
+# calculate necessary variables
+#   date of interview
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+# inputData$firstBirth <- NA
+# inputData$firstBirth <- ifelse(inputData$bord == 1, 1, 0)
+# 
+# inputData$sisMatDeath_ever <- NA
+# inputData$sisMatDeath_ever <- ifelse(inputData$sd_del_b4Dur_ever %in% 1, 1, 0)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_del_fbd ~ # confirmed to be children aged 0 - 59 months
+    # timing of death
+    # sisMatDeath_ever * 
+    prec_infDeath +
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    # first birth
+    
+    (1|v001), 
+  family=binomial,
+  data=inputData,
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_fbd_prevInf_bord2.model <- modelFit
+
+save(fm_fbd_prevInf_bord2.model, file = file.path("data", "fm_fbd_prevInf_bord2.Rdata"))
+# load(file.path("data", "fm_fbd_prevSis_models.Rdata"))
+
+
+summary(modelFit)
+```
+
+
+#### Own child Neo
+
+```{r fm_fbd_prevInf}
+# # filter to second or later birth order
+# MMdata <- mmExtractClean(IRdata)
+# inputBR.df <- addSib2BR(BRdata, MMdata)
+# # inputBR.df <- filter(inputBR.df, bidx == 1)
+# # 
+# # inputBR.df <- preMergeTrim(IRdata, inputBR.df, by = "childID")
+# # 
+# # inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+# inputData <- filter(BRdata, bord > 1) # filter out first births
+
+# CONSTRUCT INPUT DATASET ####
+#   Filter to only women with a sister of reproductive age
+inputData <- filter(BRdata, bord > 1)
+# inputData <- BRdata
+
+# #   Get information about sibling's death prior to child's birth
+# inputData <- addSib2BR(inputData, MMdata)
+
+# inputBR.df <- filter(BRdata, bidx == 1)
+
+# inputData <- filter(inputData, bord == 1)
+
+# calculate necessary variables
+#   date of interview
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+# inputData$firstBirth <- NA
+# inputData$firstBirth <- ifelse(inputData$bord == 1, 1, 0)
+# 
+# inputData$sisMatDeath_ever <- NA
+# inputData$sisMatDeath_ever <- ifelse(inputData$sd_del_b4Dur_ever %in% 1, 1, 0)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_del_fbd ~ # confirmed to be children aged 0 - 59 months
+    # timing of death
+    # sisMatDeath_ever * 
+    prec_neoDeath +
+    bord +
+    # prev_sd_del_b4Dur_ever + 
+    # bord +
+    # bord2 +
+    # bord3 +
+    # bord4 +
+    # bord5 +
+    # bord6p +
+    # sd_whilePreg_ever +
+    # sd_del_during_ever +
+    # sd_del_6wks_ever +
+    # sd_del_2mnth_ever +
+    # demographic variables
+    # dummy(v101) +
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    # first birth
+    
+    (1|v001), 
+  family=binomial,
+  data=inputData,
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_fbd_prevNeo.model <- modelFit
+
+save(fm_fbd_prevNeo.model, file = file.path("data", "fm_fbd_prevNeo_models.Rdata"))
+# load(file.path("data", "fm_fbd_prevSis_models.Rdata"))
+
+
+summary(modelFit)
+```
+
+
+#### Own child Neo (Birth order = 2)
+
+```{r fm_fbd_prevInf}
+# # filter to second or later birth order
+# MMdata <- mmExtractClean(IRdata)
+# inputBR.df <- addSib2BR(BRdata, MMdata)
+# # inputBR.df <- filter(inputBR.df, bidx == 1)
+# # 
+# # inputBR.df <- preMergeTrim(IRdata, inputBR.df, by = "childID")
+# # 
+# # inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+# inputData <- filter(BRdata, bord > 1) # filter out first births
+
+# CONSTRUCT INPUT DATASET ####
+#   Filter to only women with a sister of reproductive age
+inputData <- filter(BRdata, bord == 2)
+# inputData <- BRdata
+
+# #   Get information about sibling's death prior to child's birth
+# inputData <- addSib2BR(inputData, MMdata)
+
+# inputBR.df <- filter(BRdata, bidx == 1)
+
+# inputData <- filter(inputData, bord == 1)
+
+# calculate necessary variables
+#   date of interview
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+# inputData$firstBirth <- NA
+# inputData$firstBirth <- ifelse(inputData$bord == 1, 1, 0)
+# 
+# inputData$sisMatDeath_ever <- NA
+# inputData$sisMatDeath_ever <- ifelse(inputData$sd_del_b4Dur_ever %in% 1, 1, 0)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_del_fbd ~ # confirmed to be children aged 0 - 59 months
+    # timing of death
+    # sisMatDeath_ever * 
+    prec_neoDeath +
+    # bord +
+    # prev_sd_del_b4Dur_ever + 
+    # bord +
+    # bord2 +
+    # bord3 +
+    # bord4 +
+    # bord5 +
+    # bord6p +
+    # sd_whilePreg_ever +
+    # sd_del_during_ever +
+    # sd_del_6wks_ever +
+    # sd_del_2mnth_ever +
+    # demographic variables
+    # dummy(v101) +
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    # first birth
+    (1|v001), 
+  family=binomial,
+  data=inputData,
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_fbd_prevNeo_bord2.model <- modelFit
+
+save(fm_fbd_prevNeo_bord2.model, file = file.path("data", "fm_fbd_prevNeo_bord2.Rdata"))
+# load(file.path("data", "fm_fbd_prevSis_models.Rdata"))
+
+
+summary(modelFit)
+```
+
+
+#### Tables
+
+```{r}
+
+texreg(list(fm_fbd_prevu5.model, fm_fbd_prevInf.model, fm_fbd_prevNeo.model, fm_fbd_prevSis.model))
+
+```
+
+### Extra tables
+
+#### FBD any sister
+
+```{r}
+
+texreg(fm_fbd_prevSis_anySister.model,
+       custom.coef.map = list("prec_u5Death" = "Under five death exposure",
+                           "prec_infDeath" = "Infant death exposure",
+                           "prec_neoDeath" = "Neonatal death exposure",
+                           "prev_sd_del_b4Dur_ever" = "Sister's Death during pregnancy / delivery",
+                           "bord" = "Parity",
+                           "wealthIndex" = "Wealth index",
+                           "age_r_atCBirth_normalized" = "Age at birth (normalized)",
+                           "rural" = "Rural residency",
+                           "v133" = "Years of education",
+                           "everUnion" = "Ever married / in union")
+       )
+
+```
+
+#### ANC any sister
+
+```{r}
+
+texreg(fm_anc_prevSis_anySister.model,
+       custom.coef.map = list("prec_u5Death" = "Under five death exposure",
+                           "prec_infDeath" = "Infant death exposure",
+                           "prec_neoDeath" = "Neonatal death exposure",
+                           "prev_sd_del_b4Dur_ever" = "Sister's Death during pregnancy / delivery",
+                           "bord" = "Parity",
+                           "wealthIndex" = "Wealth index",
+                           "age_r_atCBirth_normalized" = "Age at birth (normalized)",
+                           "rural" = "Rural residency",
+                           "v133" = "Years of education",
+                           "everUnion" = "Ever married / in union")
+       )
+
+```
+
+### Skilled delivery
+
+#### Previous sister's death (Interaction)
+
+```{r fm_skilld_prevSis_interaction}
+
+# # filter to second or later birth order
+# MMdata <- mmExtractClean(IRdata)
+# inputBR.df <- addSib2BR(BRdata, MMdata)
+# inputBR.df <- filter(BRdata, bidx == 1)
+
+
+inputBR.df <- preMergeTrim(IRdata, BRdata, by = "childID")
+
+inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+inputData <- filter(inputData, sisMatRisk_known == 1)
+  
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+inputData$firstBirth <- NA
+inputData$firstBirth <- ifelse(inputData$bord == 1, 1, 0)
+
+inputData$sisMatDeath_ever <- NA
+inputData$sisMatDeath_ever <- ifelse(inputData$sd_del_b4Dur_ever %in% 1, 1, 0)
+
+# skilled delivery
+inputData$skill_delivery <- NA
+inputData$skill_delivery <- ifelse(inputData$rh_del_pvskill == 1, 1, 0)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  skill_delivery ~ 
+    # timing of death
+    # sisMatDeath_ever * 
+    prev_sd_del_b4Dur_ever * firstBirth +
+    # prev_sd_del_b4Dur_ever + 
+    # bord +
+    # bord2 +
+    # bord3 +
+    # bord4 +
+    # bord5 +
+    # bord6p +
+    # sd_whilePreg_ever +
+    # sd_del_during_ever +
+    # sd_del_6wks_ever +
+    # sd_del_2mnth_ever +
+    # demographic variables
+    # dummy(v101) +
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    # first birth
+    
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_skilld_prevSis_interaction.model <- modelFit
+save(fm_skilld_prevSis_interaction.model, file = file.path("data", "fm_skilld_prevSis_interaction.Rdata"))
+
+summary(modelFit)
+
+```
+#### new tables with birth order = 2
+
+```{r}
+# load saved models
+#   child mortality exposure
+load(file.path("data", "fm_anc_prevu5_bord2.Rdata"))
+load(file.path("data", "fm_anc_prevInf_bord2.Rdata"))
+load(file.path("data", "fm_anc_prevNeo_bord2.Rdata"))
+load(file.path("data", "fm_fbd_prevu5_bord2.Rdata"))
+load(file.path("data", "fm_fbd_prevInf_bord2.Rdata"))
+load(file.path("data", "fm_fbd_prevNeo_bord2.Rdata"))
+
+#   Sister maternal mortality exposure
+load(file.path("data", "fm_fbd_prevSis_models.Rdata"))
+load(file.path("data", "fm_anc_prevSis.Rdata"))
+
+cMortModels.list <- list(
+  fm_anc_prevu5_bord2.model, 
+  fm_anc_prevInf_bord2.model, 
+  fm_anc_prevNeo_bord2.model, 
+  fm_fbd_prevu5_bord2.model, 
+  fm_fbd_prevInf_bord2.model, 
+  fm_fbd_prevNeo_bord2.model
+  )
+
+
+sMortModels.list <- list(
+  fm_anc_prevSis.model, 
+  fm_fbd_prevSis.model
+  )
+
+fbdModels.list <- list(
+  fm_fbd_prevu5_bord2.model, 
+  fm_fbd_prevInf_bord2.model, 
+  fm_fbd_prevNeo_bord2.model,
+  fm_fbd_prevSis.model
+)
+
+anc4Models.list <- list(
+  fm_anc_prevu5_bord2.model, 
+  fm_anc_prevInf_bord2.model, 
+  fm_anc_prevNeo_bord2.model,
+  fm_anc_prevSis.model
+)
+
+texreg(list(fm_anc_prevNeo_bord2.model, fm_anc_prevInf_bord2.model, fm_anc_prevu5_bord2.model, fm_fbd_prevNeo_bord2.model, fm_fbd_prevInf_bord2.model, fm_fbd_prevu5_bord2.model),
+       custom.coef.map = list(
+         "prec_neoDeathTRUE" = "Neonatal death exposure",
+         "prec_infDeathTRUE" = "Infant death exposure",
+         "prec_u5DeathTRUE" = "Under five death exposure",
+         "prev_sd_del_b4Dur_everTRUE" = "Sister's maternal death",
+         "bord" = "Parity",
+         "wealthIndex" = "Wealth index",
+         "age_r_atCBirth_normalized" = "Age at birth (normalized)",
+         "ruralTRUE" = "Rural residency",
+         "v133" = "Years of education",
+         "everUnionTRUE" = "Ever married / in union",
+         "(Intercept)" = "(Intercept)")#,
+       # single.row = T
+       )
+
+```
+
+#### New tables with with sister's death
+
+```{r}
+
+# fm_anc_prevSis.model
+# fm_fbd_prevSis.model
+
+
+# load(file.path("data", "fm_anc_prevSis.Rdata"))
+
+
+texreg(list(fm_anc_prevSis.model, fm_fbd_prevSis.model),
+       custom.coef.map = list(
+         "(Intercept)" = "(Intercept)",
+         "prec_u5Death" = "Under five death exposure",
+         "prec_infDeath" = "Infant death exposure",
+         "prec_neoDeath" = "Neonatal death exposure",
+         "prev_sd_del_b4Dur_everTRUE" = "Sister's maternal death",
+         "bord" = "Parity",
+         "wealthIndex" = "Wealth index",
+         "age_r_atCBirth_normalized" = "Age at birth (normalized)",
+         "rural" = "Rural residency",
+         "v133" = "Years of education",
+         "everUnion" = "Ever married / in union")
+       )
+
+```
+
+
+
+
+```{r AMEs}
+
+# 
+anc_neoInf_bord2.margins <- margins::margins(fm_anc_neoInf_bord2.model)
+summary(anc_neoInf_bord2.margins)
+
+
+```
+
+
+
+```{r marginalMeans}
+
+
+
+```
+
+
+
+```{r ICCs}
+# child models ICC
+cat("\n\nchild mortality\n")
+
+cMortModelsICC.tex <- paste0("Adjusted ICC$^{\\dag}$ ")
+for (model in cMortModels.list) {
+  adjICC <- round(performance::icc(model)$ICC_adjusted, 3)
+  adjICC <- paste0("$", adjICC, "$")
+  cMortModelsICC.tex <- paste(cMortModelsICC.tex, adjICC, sep =" & ")
+}
+
+cat(cMortModelsICC.tex, "\\\\")
+
+# sister Models ICC
+cat("\n\nSister mortality\n")
+sMortModelsICC.tex <- paste0("Adjusted ICC$^{\\dag}$ ")
+for (model in sMortModels.list) {
+  adjICC <- round(performance::icc(model)$ICC_adjusted, 3)
+  adjICC <- paste0("$", adjICC, "$")
+  sMortModelsICC.tex <- paste(sMortModelsICC.tex, adjICC, sep =" & ")
+}
+
+cat(sMortModelsICC.tex, "\\\\")
+
+
+
+```
+
+```{r marginalEffectsProcessing}
+# anc4 models
+
+anc4ExposureMargins.list <- lapply(anc4Models.list, function(x) {
+  x.margins <- marginaleffects::marginaleffects(
+    x,
+    type = "response"
+    ) |> summary()
+  
+  return(x.margins[1,])
+})
+
+anc4ExposureMargins.df <- iotools::fdrbind(anc4ExposureMargins.list)
+rm(anc4ExposureMargins.list)
+
+
+# fbd models
+fbdExposureMargins.list <- lapply(fbdModels.list, function(x) {
+  x.margins <- marginaleffects::marginaleffects(
+    x,
+    type = "response"
+    ) |> summary()
+  
+  return(x.margins[1,])
+})
+
+fbdExposureMargins.df <- iotools::fdrbind(fbdExposureMargins.list)
+rm(fbdExposureMargins.list)
+
+gc()
+
+# process the dataframes
+anc4ExposureMargins.df$pvalue.lab <- NA
+anc4ExposureMargins.df$pvalue.lab <- round(anc4ExposureMargins.df$p.value, 3) |> as.character()
+anc4ExposureMargins.df$pvalue.lab <- ifelse(anc4ExposureMargins.df$p.value < 0.001, "<0.001", anc4ExposureMargins.df$pvalue.lab)
+
+fbdExposureMargins.df$pvalue.lab <- NA
+fbdExposureMargins.df$pvalue.lab <- round(fbdExposureMargins.df$p.value, 3) |> as.character()
+fbdExposureMargins.df$pvalue.lab <- ifelse(fbdExposureMargins.df$p.value < 0.001, "<0.001", fbdExposureMargins.df$pvalue.lab)
+
+# Nice names 
+#   anc4
+anc4ExposureMargins.df$coefLabel <- NA
+anc4ExposureMargins.df$coefLabel <- ifelse(
+  anc4ExposureMargins.df$term == "prec_u5Death", 
+  "Under five death", 
+  anc4ExposureMargins.df$coefLabel
+  )
+anc4ExposureMargins.df$coefLabel <- ifelse(
+  anc4ExposureMargins.df$term == "prec_infDeath", 
+  "Infant death", 
+  anc4ExposureMargins.df$coefLabel
+  )
+anc4ExposureMargins.df$coefLabel <- ifelse(
+  anc4ExposureMargins.df$term == "prec_neoDeath", 
+  "Neonatal death", 
+  anc4ExposureMargins.df$coefLabel
+  )
+anc4ExposureMargins.df$coefLabel <- ifelse(
+  anc4ExposureMargins.df$term == "prev_sd_del_b4Dur_ever", 
+  "Sister's maternal death", 
+  anc4ExposureMargins.df$coefLabel
+  )
+
+anc4ExposureMargins.df$coefLabel <- factor(
+  anc4ExposureMargins.df$coefLabel, 
+  levels = c(
+    "Under five death",
+    "Infant death", 
+    "Neonatal death",
+    "Sister's maternal death"
+    )
+  )
+
+# fbd
+fbdExposureMargins.df$coefLabel <- NA
+fbdExposureMargins.df$coefLabel <- ifelse(
+  fbdExposureMargins.df$term == "prec_u5Death", 
+  "Under five death", 
+  fbdExposureMargins.df$coefLabel
+  )
+fbdExposureMargins.df$coefLabel <- ifelse(
+  fbdExposureMargins.df$term == "prec_infDeath", 
+  "Infant death", 
+  fbdExposureMargins.df$coefLabel
+  )
+fbdExposureMargins.df$coefLabel <- ifelse(
+  fbdExposureMargins.df$term == "prec_neoDeath", 
+  "Neonatal death", 
+  fbdExposureMargins.df$coefLabel
+  )
+fbdExposureMargins.df$coefLabel <- ifelse(
+  fbdExposureMargins.df$term == "prev_sd_del_b4Dur_ever", 
+  "Sister's maternal death", 
+  fbdExposureMargins.df$coefLabel
+  )
+
+fbdExposureMargins.df$coefLabel <- factor(
+  fbdExposureMargins.df$coefLabel, 
+  levels = c(
+    "Under five death",
+    "Infant death", 
+    "Neonatal death",
+    "Sister's maternal death"
+    )
+  )
+
+
+
+
+# AME & CI
+anc4ExposureMargins.df$ameLabel <- NA
+anc4ExposureMargins.df$ameLabel <- paste0(round(anc4ExposureMargins.df$estimate*100, 1), 
+                                          " (",
+                                          round(anc4ExposureMargins.df$conf.low*100, 1), 
+                                          ", ",
+                                          round(anc4ExposureMargins.df$conf.high*100, 1), ")")
+
+fbdExposureMargins.df$ameLabel <- NA
+fbdExposureMargins.df$ameLabel <- paste0(round(fbdExposureMargins.df$estimate*100, 1), 
+                                          " (",
+                                          round(fbdExposureMargins.df$conf.low*100, 1), 
+                                          ", ",
+                                          round(fbdExposureMargins.df$conf.high*100, 1), ")")
+
+
+```
+
+
+```{r marginalEffectsPlot, fig.height = 2, fig.width = 6.5}
+
+source(file.path("R", "jwr_marginPlot_CI.R"))
+
+(anc4_me.plot <- jwr_marginPlot_CI(anc4ExposureMargins.df))
+(fbd_me.plot <- jwr_marginPlot_CI(fbdExposureMargins.df))
+
+ggplot2::ggsave(file.path("data", "anc4_me.png"), plot=anc4_me.plot)
+ggplot2::ggsave(file.path("data", "fbd_me.png"), plot=fbd_me.plot)
+
+
+```
+
+
+```{r marginalEffectsPlot_reorganized, fig.height = 2, fig.width = 6.5}
+
+source(file.path("R", "jwr_marginPlot_CI.R"))
+
+sisExposureMargins.df <- filter(anc4ExposureMargins.df, term == "prev_sd_del_b4Dur_ever")
+sisExposureMargins.df <- rbind(sisExposureMargins.df, filter(fbdExposureMargins.df, term == "prev_sd_del_b4Dur_ever"))
+
+sisExposureMargins.df$expLabel <- c("4+ Antentatal care visits", "Facility-based delivery")
+
+neoExposureMargins.df <- filter(anc4ExposureMargins.df, term == "prec_neoDeath")
+neoExposureMargins.df <- rbind(neoExposureMargins.df, filter(fbdExposureMargins.df, term == "prec_neoDeath"))
+
+neoExposureMargins.df$expLabel <- c("4+ Antentatal care visits", "Facility-based delivery")
+
+
+(sisExp_me.plot <- jwr_marginPlot_CI(sisExposureMargins.df, term = "expLabel"))
+(neoExp_me.plot <- jwr_marginPlot_CI(neoExposureMargins.df, term = "expLabel"))
+
+ggplot2::ggsave(file.path("data", "sisExp_me.png"), plot=sisExp_me.plot)
+ggplot2::ggsave(file.path("data", "neoExp_me.png"), plot=neoExp_me.plot)
+
+
+```
+
+
+### Robustness check
+
+#### ANC sister robustness check
+
+```{r}
+
+### ANC MODEL ####
+
+# # filter to second or later birth order
+# MMdata <- mmExtractClean(IRdata)
+# inputBR.df <- addSib2BR(BRdata, MMdata)
+# inputBR.df <- filter(BRdata, bidx == 1)
+
+
+inputBR.df <- preMergeTrim(IRdata, BRdata, by = "childID")
+
+inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+inputData <- filter(inputData, sisMatRisk_known == 1)
+
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+inputData$firstBirth <- NA
+inputData$firstBirth <- ifelse(inputData$bord == 1, 1, 0)
+
+inputData$sisMatDeath_ever <- NA
+inputData$sisMatDeath_ever <- ifelse(inputData$sd_del_b4Dur_ever %in% 1, 1, 0)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_anc_4vs ~ 
+    # timing of death
+    # sisMatDeath_ever * 
+    # prev_sd_del_b4Dur_ever +
+    prev_sd_nonMat_ever +
+    # prev_sd_del_b4Dur_ever + 
+    bord +
+    # bord2 +
+    # bord3 +
+    # bord4 +
+    # bord5 +
+    # bord6p +
+    # sd_whilePreg_ever +
+    # sd_del_during_ever +
+    # sd_del_6wks_ever +
+    # sd_del_2mnth_ever +
+    # demographic variables
+    # dummy(v101) +
+  wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    # first birth
+    
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_anc_prevSis_rb.model <- modelFit
+save(fm_anc_prevSis_rb.model, file = file.path("data", "fm_anc_prevSis_sensitivity.Rdata"))
+
+summary(modelFit)
+
+```
+
+
+#### FBD sister robustness check
+
+```{r}
+
+### FBD Models
+inputData <- filter(BRdata, sisMatRisk_known == 1)
+# inputData <- BRdata
+
+#   Get information about sibling's death prior to child's birth
+# inputData <- addSib2BR(inputData, MMdata)
+
+# inputBR.df <- filter(BRdata, bidx == 1)
+
+# inputData <- filter(inputData, bord == 1)
+
+# calculate necessary variables
+#   date of interview
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+# inputData$firstBirth <- NA
+# inputData$firstBirth <- ifelse(inputData$bord == 1, 1, 0)
+# 
+# inputData$sisMatDeath_ever <- NA
+# inputData$sisMatDeath_ever <- ifelse(inputData$sd_del_b4Dur_ever %in% 1, 1, 0)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_del_fbd ~ # confirmed to be children aged 0 - 59 months
+    # timing of death
+    # sisMatDeath_ever * 
+    # prev_sd_del_b4Dur_ever +
+    prev_sd_nonMat_ever +
+    bord +
+    # prev_sd_del_b4Dur_ever + 
+    # bord +
+    # bord2 +
+    # bord3 +
+    # bord4 +
+    # bord5 +
+    # bord6p +
+    # sd_whilePreg_ever +
+    # sd_del_during_ever +
+    # sd_del_6wks_ever +
+    # sd_del_2mnth_ever +
+  # demographic variables
+  # dummy(v101) +
+  wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    # first birth
+    
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_fbd_prevSis_rb.model <- modelFit
+save(fm_fbd_prevSis_rb.model, file = file.path("data", "fm_fbd_prevSis_sensitivity.Rdata"))
+
+summary(modelFit)
+
+```
+
+#### Tables
+
+```{r}
+
+texreg(list(fm_anc_prevSis_rb.model, fm_fbd_prevSis_rb.model),
+       custom.coef.map = list(
+         "(Intercept)" = "(Intercept)",
+         "prev_sd_del_b4Dur_ever" = "Sister's Death during pregnancy / delivery",
+         "prev_sd_nonMat_ever" = "Sister's nonmaternal death",
+         "bord" = "Parity",
+         "wealthIndex" = "Wealth index",
+         "age_r_atCBirth_normalized" = "Age at birth (normalized)",
+         "ruralTRUE" = "Rural residency",
+         "v133" = "Years of education",
+         "everUnionTRUE" = "Ever married / in union")
+       )
+
+```
+
+
+### Additional models examinining neonatal mortality
+
+#### ANC nonNeoU5
+
+```{r}
+inputBR.df <- preMergeTrim(IRdata, BRdata, by = "childID")
+
+inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+inputData <- filter(inputData, bord == 2)
+  
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_anc_4vs ~ 
+    # timing of death
+    prev_nonNeoU5 +
+    # demographic variables
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    # first birth
+    
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_anc_nonNeoU5_bord2.model <- modelFit
+save(fm_anc_nonNeoU5_bord2.model, file = file.path("data", "fm_anc_nonNeoU5_bord2.Rdata"))
+
+summary(modelFit)
+```
+
+#### ANC deathCat
+
+```{r}
+
+inputBR.df <- preMergeTrim(IRdata, BRdata, by = "childID")
+
+inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+inputData <- filter(inputData, bord == 2)
+  
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+# inputData$firstBirth <- NA
+# inputData$firstBirth <- ifelse(inputData$bord == 1, 1, 0)
+# 
+# inputData$sisMatDeath_ever <- NA
+# inputData$sisMatDeath_ever <- ifelse(inputData$sd_del_b4Dur_ever %in% 1, 1, 0)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_anc_4vs ~ 
+    # timing of death
+    prev_onlyNeo +
+    # prev_nonNeoU5 +
+    prev_onlyInf +
+    prev_onlyU5 +
+    # prev_onlyOther +
+    # bord +
+    # bord2 +
+    # bord3 +
+    # bord4 +
+    # bord5 +
+    # bord6p +
+    # sd_whilePreg_ever +
+    # sd_del_during_ever +
+    # sd_del_6wks_ever +
+    # sd_del_2mnth_ever +
+    # demographic variables
+    # dummy(v101) +
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    # first birth
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_anc_deathCat_bord2.model <- modelFit
+save(fm_anc_deathCat_bord2.model, file = file.path("data", "fm_anc_deathCat_bord2.Rdata"))
+
+summary(modelFit)
+
+```
+
+
+#### FBD nonNeou5
+
+```{r fbdNonNeoU5}
+
+# CONSTRUCT INPUT DATASET ####
+#   Filter to only women with a sister of reproductive age
+inputData <- filter(BRdata, bord == 2)
+# inputData <- BRdata
+
+# calculate necessary variables
+#   date of interview
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_del_fbd ~ # confirmed to be children aged 0 - 59 months
+    # timing of death
+    # sisMatDeath_ever * 
+    # prev_onlyNeo +
+    prev_nonNeoU5 +
+    # prev_onlyInf +
+    # prev_onlyU5 +
+    # prev_onlyOther +
+    # bord +
+    # prev_sd_del_b4Dur_ever + 
+    # bord +
+    # bord2 +
+    # bord3 +
+    # bord4 +
+    # bord5 +
+    # bord6p +
+    # sd_whilePreg_ever +
+    # sd_del_during_ever +
+    # sd_del_6wks_ever +
+  # sd_del_2mnth_ever +
+  # demographic variables
+  # dummy(v101) +
+  wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    # first birth
+    
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+
+
+
+# modelFit
+summary(modelFit)
+# summary(modelFit2)
+
+
+
+fm_fbd_nonNeoU5_bord2.model <- modelFit
+save(fm_fbd_nonNeoU5_bord2.model, file = file.path("data", "fm_fbd_nonNeoU5_bord2.Rdata"))
+
+```
+#### FBD deathCat
+
+```{r}
+
+# CONSTRUCT INPUT DATASET ####
+#   Filter to only women with a sister of reproductive age
+inputData <- filter(BRdata, bord == 2)
+# inputData <- BRdata
+
+# calculate necessary variables
+#   date of interview
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_del_fbd ~ # confirmed to be children aged 0 - 59 months
+    # timing of death
+    # sisMatDeath_ever * 
+    prev_onlyNeo +
+    # prev_nonNeoU5 +
+    prev_onlyInf +
+    prev_onlyU5 +
+    # prev_onlyOther +
+    # bord +
+    # prev_sd_del_b4Dur_ever + 
+    # bord +
+    # bord2 +
+    # bord3 +
+    # bord4 +
+    # bord5 +
+    # bord6p +
+    # sd_whilePreg_ever +
+    # sd_del_during_ever +
+    # sd_del_6wks_ever +
+  # sd_del_2mnth_ever +
+  # demographic variables
+  # dummy(v101) +
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    # first birth
+    
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+
+# modelFit
+summary(modelFit)
+
+fm_fbd_deathCat_bord2.model <- modelFit
+save(fm_fbd_deathCat_bord2.model, file = file.path("data", "fm_fbd_deathCat_bord2.Rdata"))
+
+summary(modelFit)
+
+
+```
+
+#### Tables
+
+```{r}
+
+load(file.path("data", "fm_anc_nonNeoU5_bord2.Rdata"))
+load(file.path("data", "fm_anc_deathCat_bord2.Rdata"))
+load(file.path("data", "fm_fbd_nonNeoU5_bord2.Rdata"))
+load(file.path("data", "fm_fbd_deathCat_bord2.Rdata"))
+
+
+texreg(list(fm_anc_nonNeoU5_bord2.model, 
+            fm_anc_deathCat_bord2.model, 
+            fm_fbd_nonNeoU5_bord2.model,
+            fm_fbd_deathCat_bord2.model),
+       custom.coef.map = list(
+         "prev_onlyNeoTRUE" = "Child death <28 days",
+         "prev_onlyInfTRUE" = "Child death 28 days to < 1 year",
+         "prev_onlyU5TRUE" = "Child death 1 year to < 5 years",
+         "prev_nonNeoU5TRUE" = "Child death < 5 years (excluding neonatal)",
+         "prev_sd_del_b4Dur_ever" = "Sister's Death during pregnancy / delivery",
+         "prev_sd_nonMat_ever" = "Sister's nonmaternal death",
+         "bord" = "Parity",
+         "wealthIndex" = "Wealth index",
+         "age_r_atCBirth_normalized" = "Age at birth (normalized)",
+         "ruralTRUE" = "Rural residency",
+         "v133" = "Years of education",
+         "everUnionTRUE" = "Ever married / in union"),
+         "(Intercept)" = "(Intercept)"
+       )
+```
+
+
+### Restricting sister exposure to most recent birth
+
+#### Antenatal care
+
+```{r}
+
+
+# # filter to second or later birth order
+# MMdata <- mmExtractClean(IRdata)
+# inputBR.df <- addSib2BR(BRdata, MMdata)
+# inputBR.df <- filter(BRdata, bidx == 1)
+
+
+inputBR.df <- preMergeTrim(IRdata, BRdata, by = "childID")
+
+inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+inputData <- filter(inputData, sisMatRisk_known == 1)
+# filter to most recent birth
+inputData <- filter(inputData, bidx == 1)
+  
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+inputData$firstBirth <- NA
+inputData$firstBirth <- ifelse(inputData$bord == 1, 1, 0)
+
+inputData$sisMatDeath_ever <- NA
+inputData$sisMatDeath_ever <- ifelse(inputData$sd_del_b4Dur_ever %in% 1, 1, 0)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_anc_4vs ~ 
+    # timing of death
+    # sisMatDeath_ever * 
+    prev_sd_del_b4Dur_ever +
+    # prev_sd_del_b4Dur_ever + 
+    bord +
+    # bord2 +
+    # bord3 +
+    # bord4 +
+    # bord5 +
+    # bord6p +
+    # sd_whilePreg_ever +
+    # sd_del_during_ever +
+    # sd_del_6wks_ever +
+    # sd_del_2mnth_ever +
+    # demographic variables
+    # dummy(v101) +
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    # first birth
+    
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_anc_prevSis_mostRecent.model <- modelFit
+save(fm_anc_prevSis_mostRecent.model, file = file.path(getwd(), "data", "fm_anc_prevSis_mostRecent.Rdata"))
+
+summary(fm_anc_prevSis_mostRecent.model)
+
+
+```
+
+
+#### Facility Based Delivery
+
+```{r fm_fbd_prevSis}
+# CONSTRUCT INPUT DATASET ####
+#   Filter to only women with a sister of reproductive age
+inputData <- filter(BRdata, sisMatRisk_known == 1)
+inputData <- filter(inputData, bidx == 1)
+
+# calculate necessary variables
+#   date of interview
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+# fit the model
+modelFit <- lme4::glmer(
+  rh_del_fbd ~ # confirmed to be children aged 0 - 59 months
+    prev_sd_del_b4Dur_ever +
+    bord +
+    # demographic variables
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    rural + 
+    v133 + 
+    everUnion + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_fbd_prevSis_mostRecent.model <- modelFit
+
+save(fm_fbd_prevSis_mostRecent.model, file = file.path(getwd(), "data", "fm_fbd_prevSis_mostRecent.Rdata"))
+# load(file.path("data", "fm_fbd_prevSis_models.Rdata"))
+
+
+summary(modelFit)
+```
+
+
+
+
+```{r finalPrevSisModels}
+
+load(file.path("data", "fm_fbd_prevSis_mostRecent.Rdata"))
+load(file.path("data", "fm_anc_prevSis_mostRecent.Rdata"))
+
+texreg(list(fm_anc_prevSis_mostRecent.model, fm_fbd_prevSis_mostRecent.model),
+       custom.coef.map = list(
+         "prec_u5Death" = "Under five death exposure",
+         "prec_infDeath" = "Infant death exposure",
+         "prec_neoDeath" = "Neonatal death exposure",
+         "prev_sd_del_b4Dur_everTRUE" = "Sister's maternal death",
+         "bord" = "Parity",
+         "wealthIndex" = "Wealth index",
+         "age_r_atCBirth_normalized" = "Age at birth (standardized)",
+         "ruralTRUE" = "Rural residency",
+         "v133" = "Years of education",
+         "everUnionTRUE" = "Ever married / in union",
+         "(Intercept)" = "(Intercept)"
+         )
+       )
+
+```
+
+
+### Revised AMEs
+
+```{r}
+
+source(file.path("R", "jwr_marginPlot_CI.R"))
+
+(anc4_me.plot <- jwr_marginPlot_CI(anc4ExposureMargins.df))
+(fbd_me.plot <- jwr_marginPlot_CI(fbdExposureMargins.df))
+
+ggplot2::ggsave(file.path("data", "anc4_me.png"), plot=anc4_me.plot)
+ggplot2::ggsave(file.path("data", "fbd_me.png"), plot=fbd_me.plot)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

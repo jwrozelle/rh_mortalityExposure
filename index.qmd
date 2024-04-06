@@ -1,0 +1,89 @@
+---
+title: "setEnvironment"
+format: html
+editor: visual
+---
+
+# Load packages and data
+
+```{r setup}
+# knitr::opts_chunk$set(echo = TRUE)
+library(lubridate)
+library(labelled)
+library(future.apply)
+library(stringr)
+library(sjPlot)
+library(sjmisc)
+library(sjlabelled)
+library(uuid)
+library(cmdstanr)
+library(posterior)
+library(forcats)
+library(sjstats)
+library(brms)
+library(brmsmargins)
+library(metafor)
+library(memisc)
+# library(MCMCpack)
+library(parallel)
+library(plyr)
+library(survey)
+library(foreign)
+library(epiDisplay)
+library(gmodels)
+library(gtools)
+library(pscl)
+library(ggplot2)
+# library(figured)
+# library(tidyverse)
+library(dplyr)
+library(stargazer)
+library(grid)
+library(ggplot2)
+library(lattice)
+library(gridExtra)
+library(performance)
+library(lme4)
+library(wesanderson)
+library(stargazer)
+library(aod) # for wald test
+library(openxlsx)
+library(margins)
+library(here)
+
+
+# load color palette
+palette_c <- wes_palette("FantasticFox1", 5)
+
+# Detect the number of cores to use for parallel processing. If unsure, this can be set to one, though will take longer
+# n.cores <- detectCores()
+n.cores <- 12
+n.cores
+
+```
+
+```{r ReadData}
+# if necessary, read data into R format from stata
+source("R/readData.R")
+
+data.dir <- "data"
+
+load(file=file.path(here(), "data", "ie_dfList.Rdata"))
+
+# Name them according to 3 digit survey code
+for (i in 1:length(df_list)) {
+  names(df_list)[i] <- df_list[[i]]$v000[1]
+}
+
+# Name them according to 3 digit survey code
+for (i in 1:length(dfKR_list)) {
+  names(dfKR_list)[i] <- dfKR_list[[i]]$v000[1]
+}
+
+# Name them according to 3 digit survey code
+for (i in 1:length(dfBR_list)) {
+  names(dfBR_list)[i] <- dfBR_list[[i]]$v000[1]
+}
+
+```
+

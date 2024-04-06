@@ -1,0 +1,79 @@
+
+
+## Load and process 2010
+
+```{r}
+
+library(foreign)
+library(dplyr)
+library(labelled)
+library(naniar)
+library(parallel)
+library(future)
+library(future.apply)
+library(uuid)
+
+mw10_data_dir <- Sys.getenv("DATA_DIRECTORY2")
+
+# read data
+## BRdata
+BRdata.mw10.df <- read.dta(file.path(mw10_data_dir, "MWBR61FL.DTA"), convert.factors = F)
+## IRdata
+IRdata.mw10.df <- read.dta(file.path(mw10_data_dir, "MWIR61FL.DTA"), convert.factors = F)
+
+
+```
+
+
+## clean IR data
+
+```{r}
+
+IRdata.mw10.df <- ieClean(IRdata.mw10.df)
+
+sibData <- mmExtractClean(IRdata.mw10.df)
+
+```
+
+
+
+## Maternal mortality extract & clean
+
+```{r}
+
+sibData <- mmExtractClean(IRdata.mw10.df)
+
+```
+
+
+
+## clean BR data
+
+```{r}
+
+BRdata.mw10.df <- cleanBR(BRdata.mw10.df)
+
+BRdata.mw10.df <- addSib2BR(BRdata.mw10.df, sibData = sibData)
+
+source(file.path(here::here(), "R", "cleanBR_c1c2_interimMM.R"))
+source(file.path(here::here(), "R", "cleanBR_addedChildVars.R"))
+
+BRdata.mw10.df <- cleanBR_addedChildVars(BRdata.mw10.df)
+
+BRdata.mw10.df <- cleanBR_c1c2_interimMM(BRdata.mw10.df, sibData = sibData)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+

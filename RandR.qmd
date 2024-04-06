@@ -1,0 +1,2740 @@
+---
+title: "R and R requests"
+format:
+  html:
+    toc: true
+    toc-location: left
+    toc-depth: 5
+editor: visual
+---
+
+```{r loadData, echo=FALSE, results='hide'}
+
+# load libraries used
+library(stargazer)
+library(dplyr)
+library(lme4)
+library(labeling)
+library(labelled)
+library(lmtest)
+# library(future)
+# library(future.apply)
+library(parallel)
+library(texreg)
+library(ggplot2)
+library(scales)
+library(marginaleffects)
+library(sjPlot)
+library(here)
+library(gmodels)
+
+# Required functions
+source(file.path(here::here(), "R", "preMergeTrim.R"))
+source(file.path(here::here(), "R", "normalizeAgeAtBirth.R"))
+source(file.path(here::here(), "R", "models", "anc_RandR.R"))
+
+# Load data
+load(file= file.path(here::here(), "data", "Malawi_dfs_paper.Rdata"))
+load(file = file.path(here::here(), "data", "modelData_Paper.Rdata"))
+
+# additional processing
+BRdata$child_female <- ifelse(BRdata$child_sex == 2, 1, 0)
+KRdata$child_female <- ifelse(KRdata$child_sex == 2, 1, 0)
+
+# predictor names
+pred.names <- c("prec_u5Death" = "Under five death exposure",
+         "prec_infDeath" = "Infant death exposure",
+         "prec_neoDeath" = "Neonatal death exposure",
+         "prec_neoDeathTRUE" = "Neonatal death exposure",
+         "prev_sd_del_b4Dur_everTRUE" = "Sister's maternal death",
+         "death_28dTo59m_any" = "Any Child 28d to 59m death",
+         "u5_death_any" = "Any child death <5yrs",
+         "neo_death_any" = "Any neonatal death",
+         "bord" = "Number of births",
+         "wealthIndex" = "Household wealth",
+         "age_r_atCBirth_normalized" = "Age at birth",
+         "ruralTRUE" = "Rural residency",
+         "v133" = "Years of education",
+         "everUnionTRUE" = "Married",
+         "(Intercept)" = "(Intercept)",
+         "v001" = "Community",
+         "prev_nonNeoU5TRUE" = "Child death between 28 days to < 5 years",
+         "prev_sd_nonMat_ever" = "Sister's nonmaternal death", 
+         "married" = "Married",
+         "marriedTRUE" = "Married",
+         "prev_sd_del_b4Dur_everTRUE:ruralTRUE" = "Maternal death * Rural interaction",
+         "prec_neoDeath:ruralTRUE" = "Neonatal death exposure * rural interaction",
+         "age_normalized" = "Child age (normalized)",
+         "age_r_normalized" = "Mother's age (normalized)"
+         )
+
+```
+
+
+## 1. Check for interactions between rural residence (vs urban or vice versa) and mortality exposures on outcomes
+
+### Previous sister's maternal death exposure
+
+#### Antenatal care
+
+```{r echo=FALSE}
+
+# merge the most recent child into the IR dataset
+## Remove any variables that already exist in the IR dataset
+inputBR.df <- preMergeTrim(IRdata, BRdata, by = "childID")
+## Do the meerge
+inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+## Restrict to those with sisters at risk of maternal death (i.e. sister's of at least reproductive age)
+inputData <- filter(inputData, sisMatRisk_known == 1)
+# filter to most recent birth
+inputData <- filter(inputData, bidx == 1)
+
+# create normalized age at birth variable in analytic sample
+inputData <- normalizeAgeAtBirth(inputData)
+
+
+# fit the model
+fm_anc_prevSis_ruralInt.model <- lme4::glmer(
+  rh_anc_4vs ~ 
+    prev_sd_del_b4Dur_ever*rural +
+    bord +
+    age_r_atCBirth_normalized + 
+    married + 
+    wealthIndex + 
+    v133 + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+
+
+```
+
+
+
+The number of exposed in our sample may be insufficient to explore this interaction.
+
+
+#### Facility-based delivery
+
+```{r echo=FALSE}
+
+# Restrict to those with sisters at risk of maternal death (i.e. sister's of at least reproductive age)
+inputData <- filter(BRdata, sisMatRisk_known == 1)
+# Restrict to most recent birth
+inputData <- filter(inputData, bidx == 1)
+
+
+# calculate necessary variables
+#   normalize age at birth
+inputData <- normalizeAgeAtBirth(inputData)
+
+# fit the model
+fm_fbd_prevSis_mostRecent_ruralInt.model <- lme4::glmer(
+  rh_del_fbd ~
+    # timing of death
+    prev_sd_del_b4Dur_ever*rural +
+    bord +
+    age_r_atCBirth_normalized + 
+    married + 
+    wealthIndex + 
+    v133 + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+```
+
+#### Crosstable (previous sister's birth * rural)
+
+```{r echo=FALSE}
+
+# Crosstabs of previous sister death and rural birth
+CrossTable(model.frame(fm_fbd_prevSis_mostRecent_ruralInt.model)$rural, model.frame(fm_fbd_prevSis_mostRecent_ruralInt.model)$prev_sd_del_b4Dur_ever)
+
+```
+
+Likely insufficient sample size
+
+#### Table output
+
+```{r q1_output, echo=FALSE, results='asis'}
+sisMortFullModels.list <- list(
+  fm_anc_prevSis_ruralInt.model, 
+  fm_fbd_prevSis_mostRecent_ruralInt.model
+  )
+
+
+cat("Exposure to sister's maternal mortality interaction with rural")
+
+tab_model(
+  sisMortFullModels.list,
+  dv.labels = c("Model 1:\nFull antenatal care", "Model 2:\nFacility-based delivery"),
+  p.style = "stars",
+  pred.labels = pred.names,
+  show.intercept = F,
+  show.r2 = F,
+  show.reflvl = T,
+  file = file.path("data", "modelTables", "table_rr1a.doc")#,
+  # order.terms = c(1,2,4,5,7,3,6)
+  )
+
+
+
+```
+
+
+
+### Neo-natal mortality (among most recent births)
+
+Sample is similar to Table 3.
+
+
+#### ANC models
+
+```{r echo = FALSE, results='hide'}
+
+inputBR.df <- preMergeTrim(IRdata, BRdata, by = "childID")
+
+inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+# exclude first births
+inputData <- filter(inputData, bord > 1)
+# exclude second or later births of multiple births
+inputData <- filter(inputData, b0 < 2)
+  
+# normalize age at birth
+inputData <- normalizeAgeAtBirth(inputData)
+
+# inputData$firstBirth <- NA
+# inputData$firstBirth <- ifelse(inputData$bord == 1, 1, 0)
+# 
+# inputData$sisMatDeath_ever <- NA
+# inputData$sisMatDeath_ever <- ifelse(inputData$sd_del_b4Dur_ever %in% 1, 1, 0)
+
+
+# # fit the models
+# ## Previous under 5 death
+# fm_anc_prevu5_recent_ruralInt.model <- lme4::glmer(
+#   rh_anc_4vs ~ 
+#     prec_u5Death*rural +
+#     bord +
+#     age_r_atCBirth_normalized + 
+#     everUnion + 
+#     wealthIndex + 
+#     v133 + 
+#     (1|v001), 
+#   family=binomial, 
+#   data=filter(inputData, bidx == 1), 
+#   control = glmerControl(optimizer="bobyqa", 
+#                          optCtrl = list(maxfun=2e6))
+# )
+# 
+# ## Previous infant death
+# fm_anc_prevInf_recent_ruralInt.model <- lme4::glmer(
+#   rh_anc_4vs ~ 
+#     prec_infDeath*rural +
+#     bord +
+#     age_r_atCBirth_normalized + 
+#     everUnion + 
+#     wealthIndex + 
+#     v133 + 
+#     (1|v001), 
+#   family=binomial, 
+#   data=filter(inputData, bidx == 1), 
+#   control = glmerControl(optimizer="bobyqa", 
+#                          optCtrl = list(maxfun=2e6))
+# )
+
+## Previous neonatal death
+fm_anc_prevNeo_recent_ruralInt.model <- lme4::glmer(
+  rh_anc_4vs ~ 
+    prec_neoDeath*rural +
+    bord +
+    age_r_atCBirth_normalized + 
+    everUnion + 
+    wealthIndex + 
+    v133 + 
+    (1|v001), 
+  family=binomial, 
+  data=filter(inputData, bidx == 1), 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+save(list = c(
+  # "fm_anc_prevu5_recent_ruralInt.model", 
+  # "fm_anc_prevInf_recent_ruralInt.model", 
+  "fm_anc_prevNeo_recent_ruralInt.model"),
+     file = file.path("data", "fm_anc_prevChild_recent_ruralInt.Rdata"))
+
+# summary(fm_anc_prevu5_recent_ruralInt.model)
+# summary(fm_anc_prevInf_recent_ruralInt.model)
+# summary(fm_anc_prevNeo_recent_ruralInt.model)
+
+```
+
+
+#### FBD Models
+
+```{r echo=FALSE, results='hide'}
+
+# Filter to birth order greater than 1
+inputData <- dplyr::filter(BRdata, bord > 1)
+# exclude second or later births of multiple births
+inputData <- dplyr::filter(inputData, b0 <2)
+inputData <- dplyr::filter(inputData, bidx == 1) # !!! Most recent birth
+
+# inputData <- dplyr::filter()
+
+# calculate necessary variables
+# normalize age at birth
+inputData <- normalizeAgeAtBirth(inputData)
+
+
+# # fit the model
+# #   Under 5 death
+# fm_fbd_prevu5_recent_ruralInt.model <- lme4::glmer(
+#   rh_del_fbd ~ # confirmed to be children aged 0 - 59 months
+#     prec_u5Death*rural + 
+#     age_r_atCBirth_normalized + 
+#     everUnion + 
+#     wealthIndex + 
+#     v133 + 
+#     (1|v001), 
+#   family=binomial, 
+#   data=inputData, 
+#   control = glmerControl(optimizer="bobyqa", 
+#                          optCtrl = list(maxfun=2e6))
+# )
+# 
+# #   Infant death
+# fm_fbd_prevInf_recent_ruralInt.model <- lme4::glmer(
+#   rh_del_fbd ~ # confirmed to be children aged 0 - 59 months
+#     prec_infDeath*rural +
+#     bord +
+#     age_r_atCBirth_normalized + 
+#     everUnion + 
+#     wealthIndex + 
+#     v133 + 
+#     (1|v001), 
+#   family=binomial, 
+#   data=inputData, 
+#   control = glmerControl(optimizer="bobyqa", 
+#                          optCtrl = list(maxfun=2e6))
+# )
+
+#   Neonatal death
+fm_fbd_prevNeo_recent_ruralInt.model <- lme4::glmer(
+  rh_del_fbd ~ # confirmed to be children aged 0 - 59 months
+    prec_neoDeath*rural +
+    bord +
+    age_r_atCBirth_normalized + 
+    everUnion + 
+    wealthIndex + 
+    v133 + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+# # Summaries
+# summary(fm_fbd_prevu5_recent_ruralInt.model)
+# summary(fm_fbd_prevInf_recent_ruralInt.model)
+# summary(fm_fbd_prevNeo_recent_ruralInt.model)
+
+# Save models
+save(list = c(
+  # "fm_fbd_prevu5_recent_ruralInt.model", 
+  # "fm_fbd_prevInf_recent_ruralInt.model", 
+  "fm_fbd_prevNeo_recent_ruralInt.model"),
+     file = file.path("data", "fm_fbd_prevChild_recent_ruralInt.Rdata"))
+
+
+```
+
+
+#### Table output
+
+```{r table4, echo = FALSE, results='asis'}
+
+# cmortFullModels.list <- list(
+#   fm_anc_prevNeo_recent_ruralInt.model,
+#   fm_anc_prevInf_recent_ruralInt.model,
+#   fm_anc_prevu5_recent_ruralInt.model,
+#   fm_fbd_prevNeo_recent_ruralInt.model,
+#   fm_fbd_prevInf_recent_ruralInt.model,
+#   fm_fbd_prevu5_recent_ruralInt.model
+#   )
+
+load(file = file.path("data", "fm_anc_prevChild_recent_ruralInt.Rdata"))
+load(file = file.path("data", "fm_fbd_prevChild_recent_ruralInt.Rdata"))
+
+neoMortFullModels.list <- list(
+  fm_anc_prevNeo_recent_ruralInt.model, 
+  fm_fbd_prevNeo_recent_ruralInt.model
+  )
+
+
+tab_model(
+  neoMortFullModels.list,
+  dv.labels = c("Model 1:\nFull antenatal care", "Model 2:\nFacility-based delivery"),
+  p.style = "stars",
+  pred.labels = pred.names,
+  show.intercept = F,
+  show.r2 = F,
+  show.reflvl = T,
+  file = file.path("data", "modelTables", "table_rr1b.doc")#,
+  # order.terms = c(1,2,4,5,7,3,6)
+  )
+
+
+```
+
+### Birth order restricted
+
+#### Birth order = 2
+
+##### ANC
+
+```{r}
+load(file = file.path("data", "anc_parityNeoModels.Rdata"))
+inputData <- model.frame(fm_anc_prevNeo_bord2.model)
+
+# # normalize age at birth
+# inputData <- normalizeAgeAtBirth(inputData)
+
+## Previous neonatal death
+fm_anc_prevNeo_ruralInt_bord2.model <- lme4::glmer(
+  rh_anc_4vs ~ 
+    prec_neoDeath*rural +
+    # bord +
+    age_r_atCBirth_normalized + 
+    everUnion + 
+    wealthIndex + 
+    v133 + 
+    (1|v001), 
+  family=binomial, 
+  data=filter(inputData), 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+save("fm_anc_prevNeo_ruralInt_bord2.model",
+     file = file.path("data", "fitModels", "fm_anc_prevChild_ruralInt_bord2.Rdata"))
+
+summary(fm_anc_prevNeo_ruralInt_bord2.model)
+
+```
+
+
+##### FBD
+
+```{r}
+
+# Get models from table 4
+load(file = file.path("data", "fbd_parityNeoModels.Rdata"))
+# extract the child IDs
+inputData <- model.frame(fm_fbd_prevNeo_bord2.model)
+
+
+
+#   Neonatal death
+fm_fbd_prevNeo_ruralInt_bord2.model <- lme4::glmer(
+  rh_del_fbd ~ # confirmed to be children aged 0 - 59 months
+    prec_neoDeath*rural +
+    age_r_atCBirth_normalized + 
+    everUnion + 
+    wealthIndex + 
+    v133 + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+# Save models
+save(list = c(
+  # "fm_fbd_prevu5_recent_ruralInt.model", 
+  # "fm_fbd_prevInf_recent_ruralInt.model", 
+  "fm_fbd_prevNeo_ruralInt_bord2.model"),
+     file = file.path("data", "fitModels", "fm_fbd_prevChild_ruralInt_bord2.Rdata"))
+
+summary(fm_fbd_prevNeo_ruralInt_bord2.model)
+
+```
+
+#### Birth order = 3
+
+##### ANC
+
+```{r}
+load(file = file.path("data", "anc_parityNeoModels.Rdata"))
+inputData <- model.frame(fm_anc_prevNeo_bord3.model)
+
+# # normalize age at birth
+# inputData <- normalizeAgeAtBirth(inputData)
+
+## Previous neonatal death
+fm_anc_prevNeo_ruralInt_bord3.model <- lme4::glmer(
+  rh_anc_4vs ~ 
+    prec_neoDeath*rural +
+    # bord +
+    age_r_atCBirth_normalized + 
+    everUnion + 
+    wealthIndex + 
+    v133 + 
+    (1|v001), 
+  family=binomial, 
+  data=filter(inputData), 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+save("fm_anc_prevNeo_ruralInt_bord3.model",
+     file = file.path("data", "fitModels", "fm_anc_prevChild_ruralInt_bord3.Rdata"))
+
+summary(fm_anc_prevNeo_ruralInt_bord3.model)
+
+```
+
+
+##### FBD
+
+```{r}
+
+# Get models from table 4
+load(file = file.path("data", "fbd_parityNeoModels.Rdata"))
+# extract the child IDs
+inputData <- model.frame(fm_fbd_prevNeo_bord3.model)
+
+
+
+#   Neonatal death
+fm_fbd_prevNeo_ruralInt_bord3.model <- lme4::glmer(
+  rh_del_fbd ~ # confirmed to be children aged 0 - 59 months
+    prec_neoDeath*rural +
+    age_r_atCBirth_normalized + 
+    everUnion + 
+    wealthIndex + 
+    v133 + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+# Save models
+save(list = c(
+  # "fm_fbd_prevu5_recent_ruralInt.model", 
+  # "fm_fbd_prevInf_recent_ruralInt.model", 
+  "fm_fbd_prevNeo_ruralInt_bord3.model"),
+     file = file.path("data", "fitModels", "fm_fbd_prevChild_ruralInt_bord3.Rdata"))
+
+summary(fm_fbd_prevNeo_ruralInt_bord3.model)
+
+```
+
+
+#### Birth order = 4
+
+##### ANC
+
+```{r}
+load(file = file.path("data", "anc_parityNeoModels.Rdata"))
+inputData <- model.frame(fm_anc_prevNeo_bord4.model)
+
+# # normalize age at birth
+# inputData <- normalizeAgeAtBirth(inputData)
+
+## Previous neonatal death
+fm_anc_prevNeo_ruralInt_bord4.model <- lme4::glmer(
+  rh_anc_4vs ~ 
+    prec_neoDeath*rural +
+    # bord +
+    age_r_atCBirth_normalized + 
+    everUnion + 
+    wealthIndex + 
+    v133 + 
+    (1|v001), 
+  family=binomial, 
+  data=filter(inputData), 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+save("fm_anc_prevNeo_ruralInt_bord4.model",
+     file = file.path("data", "fitModels", "fm_anc_prevChild_ruralInt_bord4.Rdata"))
+
+summary(fm_anc_prevNeo_ruralInt_bord4.model)
+
+```
+
+
+##### FBD
+
+```{r}
+
+# Get models from table 4
+load(file = file.path("data", "fbd_parityNeoModels.Rdata"))
+# extract the child IDs
+inputData <- model.frame(fm_fbd_prevNeo_bord4.model)
+
+
+
+#   Neonatal death
+fm_fbd_prevNeo_ruralInt_bord4.model <- lme4::glmer(
+  rh_del_fbd ~ # confirmed to be children aged 0 - 59 months
+    prec_neoDeath*rural +
+    age_r_atCBirth_normalized + 
+    everUnion + 
+    wealthIndex + 
+    v133 + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+# Save models
+save(list = c(
+  # "fm_fbd_prevu5_recent_ruralInt.model", 
+  # "fm_fbd_prevInf_recent_ruralInt.model", 
+  "fm_fbd_prevNeo_ruralInt_bord4.model"),
+     file = file.path("data", "fitModels", "fm_fbd_prevChild_ruralInt_bord4.Rdata"))
+
+summary(fm_fbd_prevNeo_ruralInt_bord4.model)
+
+```
+
+#### Table output
+
+```{r}
+# Load saved model fits
+load(file = file.path("data", "fitModels", "fm_anc_prevChild_ruralInt_bord2.Rdata"))
+load(file = file.path("data", "fitModels", "fm_anc_prevChild_ruralInt_bord3.Rdata"))
+load(file = file.path("data", "fitModels", "fm_anc_prevChild_ruralInt_bord4.Rdata"))
+load(file = file.path("data", "fitModels", "fm_fbd_prevChild_ruralInt_bord2.Rdata"))
+load(file = file.path("data", "fitModels", "fm_fbd_prevChild_ruralInt_bord3.Rdata"))
+load(file = file.path("data", "fitModels", "fm_fbd_prevChild_ruralInt_bord4.Rdata"))
+
+# create the table
+tab_model(
+  fm_anc_prevNeo_ruralInt_bord2.model,
+  fm_anc_prevNeo_ruralInt_bord3.model,
+  fm_anc_prevNeo_ruralInt_bord4.model,
+  fm_fbd_prevNeo_ruralInt_bord2.model,
+  # fm_fbd_prevNeo_ruralInt_bord3.model,
+  # fm_fbd_prevNeo_ruralInt_bord4.model,
+  dv.labels = c(
+    "Model 1:\nFull antenatal care\n[parity 2]", 
+    "Model 2:\nFull antenatal care\n[parity 3]",
+    "Model 3:\nFull antenatal care\n[parity 4]",
+    "Model 4:\nFacility-based delivery\n[parity 2]"#,
+    # "Model 5:\nFacility-based delivery\n[parity 3]", # Fails to converge, normalizing years of education or using edLevel may fix this
+    # "Model 6:\nFacility-based delivery\n[parity 4]" # Fails to converge, normalizing years of education or using edLevel may fix this
+    ),
+  p.style = "stars",
+  pred.labels = pred.names,
+  show.intercept = F,
+  show.r2 = F,
+  show.reflvl = T,
+  file = file.path("data", "modelTables", "table_rr1c.doc")
+  # order.terms = c(1,7,2,3,4,5,6)
+)
+
+```
+
+
+
+
+
+## 2. sensitivity analyses around cut-point for number of antenatal visits - try every variation of combinations (i.e., 0 vs. 1+; 0/1 vs 2+, 0-2 vs 3-4, etc) to see what is driving finding
+
+### Sister mortality exposure
+
+#### Run models
+
+```{r runSensitivityModels, echo=FALSE, results='asis'}
+
+
+inputBR.df <- preMergeTrim(IRdata, BRdata, by = "childID")
+
+inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+inputData <- filter(inputData, sisMatRisk_known == 1)
+# filter to most recent birth
+inputData <- filter(inputData, bidx == 1)
+  
+inputData$age_r_atCBirth <- inputData$age_r - (inputData$age/12)
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+
+# inputData$rh_anc_any <- ifelse(rh_anc_numvs > 0)
+
+inputData$rh_anc_visitCount <- ifelse(inputData$m14 == 98, 0, inputData$m14)
+
+# one or more ANC visits
+inputData$rh_anc_visit1plus <- ifelse(inputData$rh_anc_visitCount >= 1, 1, 0)
+# two or more ANC visits
+inputData$rh_anc_visit2plus <- ifelse(inputData$rh_anc_visitCount >= 2, 1, 0)
+# three or more ANC visits
+inputData$rh_anc_visit3plus <- ifelse(inputData$rh_anc_visitCount >= 3, 1, 0)
+
+# four or more excluding don't knows
+inputData$rh_anc_visit4plusKnows <-  ifelse(inputData$rh_anc_visitCount >= 4, 1, 0)
+inputData$rh_anc_visit4plusKnows <-  ifelse(inputData$m14 == 98, NA, inputData$rh_anc_visit4plusKnows)
+
+
+
+# one or more ANC visits
+fm_anc_prevSis_visit1plus.model <- lme4::glmer(
+  rh_anc_visit1plus ~ 
+    prev_sd_del_b4Dur_ever +
+    bord +
+    age_r_atCBirth_normalized + 
+    rural +
+    married + 
+    wealthIndex + 
+    v133 + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+save(fm_anc_prevSis_visit1plus.model, file = file.path(here::here(), "data", "fitModels", "fm_anc_prevSis_visit1plus.Rdata"))
+
+
+# two or more ANC visits
+fm_anc_prevSis_visit2plus.model <- lme4::glmer(
+  rh_anc_visit2plus ~ 
+    prev_sd_del_b4Dur_ever +
+    bord +
+    age_r_atCBirth_normalized + 
+    rural +
+    married + 
+    wealthIndex + 
+    v133 + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+save(fm_anc_prevSis_visit2plus.model, file = file.path(here::here(), "data", "fitModels", "fm_anc_prevSis_visit2plus.Rdata"))
+
+
+
+# three or more ANC visits
+fm_anc_prevSis_visit3plus.model <- lme4::glmer(
+  rh_anc_visit3plus ~ 
+    prev_sd_del_b4Dur_ever +
+    bord +
+    age_r_atCBirth_normalized + 
+    rural +
+    married + 
+    wealthIndex + 
+    v133 + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+save(fm_anc_prevSis_visit3plus.model, file = file.path(here::here(), "data", "fitModels", "fm_anc_prevSis_visit3plus.Rdata"))
+
+
+
+# four or more ANC visits, excluding unknown
+fm_anc_prevSis_visit4plusKnows.model <- lme4::glmer(
+  rh_anc_visit4plusKnows ~ 
+    prev_sd_del_b4Dur_ever +
+    bord +
+    age_r_atCBirth_normalized + 
+    rural +
+    married + 
+    wealthIndex + 
+    v133 + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+save(fm_anc_prevSis_visit4plusKnows.model, file = file.path(here::here(), "data", "fitModels", "fm_anc_prevSis_visit4plusKnows.Rdata"))
+
+
+
+```
+
+#### Table output
+
+Per DHS, the main models count "Don't know" number of visits as 0 in the 4+ anc calculator, they don't exclude them. Here's a model that excludes "don't know", for sensitivity
+
+```{r echo = F, results='asis'}
+sisMort_anc_Models.list <- list(
+  fm_anc_prevSis_visit1plus.model, 
+  fm_anc_prevSis_visit2plus.model,
+  fm_anc_prevSis_visit3plus.model# ,
+  # fm_anc_prevSis_visit4plusKnows.model
+  )
+
+
+tab_model(
+  sisMort_anc_Models.list,
+  dv.labels = c("Model 1:\n0 vs. any ANC", "Model 2:\n2+ ANC", "Model 3:\n3+ ANC", "Model 4:\n4+ ANC (excludes DK)"),
+  p.style = "stars",
+  pred.labels = pred.names,
+  show.intercept = F,
+  show.r2 = F,
+  show.reflvl = T,
+  file = file.path("data", "modelTables", "table_rr2.doc")#,
+  # order.terms = c(1,2,4,5,7,3,6)
+  )
+```
+
+
+### Child mortality exposure
+
+#### Process sample
+```{r}
+inputBR.df <- preMergeTrim(IRdata, BRdata, by = "childID")
+
+inputData <- merge(IRdata, inputBR.df, by = "childID", all.x = T, all.y = F)
+
+# exclude first births
+inputData <- filter(inputData, bord > 1)
+# exclude second or later births of multiple births
+inputData <- filter(inputData, b0 < 2)
+  
+# normalize age at birth
+inputData <- normalizeAgeAtBirth(inputData)
+
+inputData$rh_anc_visitCount <- ifelse(inputData$m14 == 98, 0, inputData$m14)
+
+# one or more ANC visits
+inputData$rh_anc_visit1plus <- ifelse(inputData$rh_anc_visitCount >= 1, 1, 0)
+# two or more ANC visits
+inputData$rh_anc_visit2plus <- ifelse(inputData$rh_anc_visitCount >= 2, 1, 0)
+# three or more ANC visits
+inputData$rh_anc_visit3plus <- ifelse(inputData$rh_anc_visitCount >= 3, 1, 0)
+
+# four or more excluding don't knows
+inputData$rh_anc_visit4plusKnows <-  ifelse(inputData$rh_anc_visitCount >= 4, 1, 0)
+inputData$rh_anc_visit4plusKnows <-  ifelse(inputData$m14 == 98, NA, inputData$rh_anc_visit4plusKnows)
+```
+
+#### ANC visits descriptives
+
+```{r}
+
+# load main analysis model
+load(file = file.path("data", "fm_anc_prevChild_recent.Rdata"))
+
+# Get the childIDs of models
+childIDs <- model.frame(fm_anc_prevNeo_recent.model) |> rownames()
+
+# filter FCdata to thos in the model
+fm_anc_prevNeo.df <- filter(inputData, childID %in% childIDs)
+
+cat(paste0("\n\n1+ ANC visits: ", round(mean(fm_anc_prevNeo.df$rh_anc_visit1plus, na.rm = T)*100, 1), "%"))
+cat(paste0("\n2+ ANC visits: ", round(mean(fm_anc_prevNeo.df$rh_anc_visit2plus, na.rm = T)*100, 1), "%"))
+cat(paste0("\n3+ ANC visits: ", round(mean(fm_anc_prevNeo.df$rh_anc_visit3plus, na.rm = T)*100, 1), "%"))
+cat(paste0("\n4+ ANC visits: ", round(mean(fm_anc_prevNeo.df$rh_anc_4vs, na.rm = T)*100, 1), "%"))
+
+```
+
+
+
+#### Run models
+
+Most recent births
+
+```{r}
+# fit the models
+## 1+
+fm_anc_prevNeo_visit1plus.model <- anc_RandR(
+  filter(inputData, bidx == 1),
+  "rh_anc_visit1plus"
+  )
+
+## 2+
+fm_anc_prevNeo_visit2plus.model <- anc_RandR(
+  filter(inputData, bidx == 1),
+  "rh_anc_visit2plus"
+  )
+
+## 3+
+fm_anc_prevNeo_visit3plus.model <- anc_RandR(
+  filter(inputData, bidx == 1),
+  "rh_anc_visit3plus"
+  )
+
+## 4+ excluding DK
+fm_anc_prevNeo_visit4plusKnows.model <- anc_RandR(
+  filter(inputData, bidx == 1),
+  "rh_anc_visit4plusKnows"
+  )
+
+save(list = c(
+  "fm_anc_prevNeo_visit1plus.model",
+  "fm_anc_prevNeo_visit2plus.model",
+  "fm_anc_prevNeo_visit3plus.model",
+  "fm_anc_prevNeo_visit4plusKnows.model"),
+     file = file.path("data", "fm_anc_prevNeo_visits.Rdata"))
+
+```
+
+
+#### Table
+
+```{r}
+chMort_anc_Models.list <- list(
+  fm_anc_prevNeo_visit1plus.model, 
+  fm_anc_prevNeo_visit2plus.model,
+  fm_anc_prevNeo_visit3plus.model,
+  fm_anc_prevNeo_visit4plusKnows.model
+  )
+
+
+tab_model(
+  chMort_anc_Models.list,
+  dv.labels = c("Model 1:\n0 vs. any ANC", "Model 2:\n2+ ANC", "Model 3:\n3+ ANC", "Model 4:\n4+ ANC (excludes DK)"),
+  p.style = "stars",
+  pred.labels = pred.names,
+  show.intercept = F,
+  show.r2 = F,
+  show.reflvl = T,
+  file = file.path("data", "modelTables", "table_rr2_prevNeo.doc")#,
+  # order.terms = c(1,2,4,5,7,3,6)
+  )
+```
+
+
+### Child mortality exposure (birth order specific)
+
+#### Birth order = 2
+
+```{r}
+
+  #   FALSE TRUE
+  # 0    49    0
+  # 1  2547  100
+
+# fit the models # WILL NOT CONVERGE
+## 1+ # FAILS TO CONVERGE
+fm_anc_prevNeo_visit1plus_bord2.model <- anc_RandR(
+  filter(inputData, bord == 2),
+  "rh_anc_visit1plus",
+  bordRestricted = T
+  )
+
+## 2+ FAILS TO CONVERGE
+fm_anc_prevNeo_visit2plus_bord2.model <- anc_RandR(
+  filter(inputData, bord == 2),
+  "rh_anc_visit2plus",
+  bordRestricted = T
+  )
+
+## 3+
+fm_anc_prevNeo_visit3plus_bord2.model <- anc_RandR(
+  filter(inputData, bord == 2),
+  "rh_anc_visit3plus",
+  bordRestricted = T
+  )
+
+## 4+ excluding DK
+fm_anc_prevNeo_visit4plusKnows_bord2.model <- anc_RandR(
+  filter(inputData, bord == 2),
+  "rh_anc_visit4plusKnows",
+  bordRestricted = T
+  )
+
+save(list = c(
+  "fm_anc_prevNeo_visit1plus_bord2.model",
+  "fm_anc_prevNeo_visit2plus_bord2.model",
+  "fm_anc_prevNeo_visit3plus_bord2.model",
+  "fm_anc_prevNeo_visit4plusKnows_bord2.model"),
+     file = file.path("data", "fm_anc_prevNeo_visits_bord2.Rdata"))
+
+```
+
+##### Table
+```{r}
+chMort_anc_Models_bord2.list <- list(
+  # fm_anc_prevNeo_visit1plus_bord2.model, 
+  # fm_anc_prevNeo_visit2plus_bord2.model,
+  fm_anc_prevNeo_visit3plus_bord2.model,
+  fm_anc_prevNeo_visit4plusKnows_bord2.model
+  )
+
+
+tab_model(
+  chMort_anc_Models_bord2.list,
+  dv.labels = c(
+    # "Model 1:\n0 vs. any ANC", 
+    # "Model 2:\n2+ ANC", 
+    "Model 3:\n3+ ANC", 
+    "Model 4:\n4+ ANC (excludes DK)"
+    ),
+  p.style = "stars",
+  pred.labels = pred.names,
+  show.intercept = F,
+  show.r2 = F,
+  show.reflvl = T,
+  file = file.path("data", "modelTables", "table_rr2_prevNeo_bord2.doc")#,
+  # order.terms = c(1,2,4,5,7,3,6)
+  )
+```
+
+
+
+
+#### Birth order = 3
+
+```{r}
+
+# fit the models
+## 1+ # FAILS TO CONVERGE
+fm_anc_prevNeo_visit1plus_bord3.model <- anc_RandR(
+  filter(inputData, bord == 3),
+  "rh_anc_visit1plus",
+  bordRestricted = T
+  )
+
+## 2+ # FAILS TO CONVERGE
+fm_anc_prevNeo_visit2plus_bord3.model <- anc_RandR(
+  filter(inputData, bord == 3),
+  "rh_anc_visit2plus",
+  bordRestricted = T
+  )
+
+## 3+ # FAILS TO CONVERGE
+fm_anc_prevNeo_visit3plus_bord3.model <- anc_RandR(
+  filter(inputData, bord == 3),
+  "rh_anc_visit3plus",
+  bordRestricted = T
+  )
+
+## 4+ excluding DK
+fm_anc_prevNeo_visit4plusKnows_bord3.model <- anc_RandR(
+  filter(inputData, bord == 3),
+  "rh_anc_visit4plusKnows",
+  bordRestricted = T
+  )
+
+save(list = c(
+  "fm_anc_prevNeo_visit1plus_bord3.model",
+  "fm_anc_prevNeo_visit2plus_bord3.model",
+  "fm_anc_prevNeo_visit3plus_bord3.model",
+  "fm_anc_prevNeo_visit4plusKnows_bord3.model"),
+     file = file.path("data", "fm_anc_prevNeo_visits_bord3.Rdata"))
+
+```
+
+##### Table
+```{r}
+chMort_anc_Models_bord3.list <- list(
+  # fm_anc_prevNeo_visit1plus_bord3.model, 
+  # fm_anc_prevNeo_visit2plus_bord3.model,
+  # fm_anc_prevNeo_visit3plus_bord3.model,
+  fm_anc_prevNeo_visit4plusKnows_bord3.model
+  )
+
+
+tab_model(
+  chMort_anc_Models_bord3.list,
+  dv.labels = c(
+    # "Model 1:\n0 vs. any ANC", 
+    # "Model 2:\n2+ ANC", 
+    # "Model 3:\n3+ ANC", 
+    "Model 4:\n4+ ANC (excludes DK)"
+    ),
+  p.style = "stars",
+  pred.labels = pred.names,
+  show.intercept = F,
+  show.r2 = F,
+  show.reflvl = T,
+  file = file.path("data", "modelTables", "table_rr2_prevNeo_bord3.doc")#,
+  # order.terms = c(1,2,4,5,7,3,6)
+  )
+```
+
+
+#### Birth order = 4
+
+```{r}
+
+# fit the models
+## 1+ # FAILS TO CONVERGE
+fm_anc_prevNeo_visit1plus_bord4.model <- anc_RandR(
+  filter(inputData, bord == 4),
+  "rh_anc_visit1plus",
+  bordRestricted = T
+  )
+
+## 2+ # FAILS TO CONVERGE
+fm_anc_prevNeo_visit2plus_bord4.model <- anc_RandR(
+  filter(inputData, bord == 4),
+  "rh_anc_visit2plus",
+  bordRestricted = T
+  )
+
+## 3+ # FAILS TO CONVERGE
+fm_anc_prevNeo_visit3plus_bord4.model <- anc_RandR(
+  filter(inputData, bord == 4),
+  "rh_anc_visit3plus",
+  bordRestricted = T
+  )
+
+## 4+ excluding DK
+fm_anc_prevNeo_visit4plusKnows_bord4.model <- anc_RandR(
+  filter(inputData, bord == 4),
+  "rh_anc_visit4plusKnows",
+  bordRestricted = T
+  )
+
+save(list = c(
+  "fm_anc_prevNeo_visit1plus_bord4.model",
+  "fm_anc_prevNeo_visit2plus_bord4.model",
+  "fm_anc_prevNeo_visit3plus_bord4.model",
+  "fm_anc_prevNeo_visit4plusKnows_bord4.model"),
+     file = file.path("data", "fm_anc_prevNeo_visits_bord4.Rdata"))
+
+```
+
+##### Table
+
+```{r}
+chMort_anc_Models_bord4.list <- list(
+  # fm_anc_prevNeo_visit1plus_bord4.model, 
+  # fm_anc_prevNeo_visit2plus_bord4.model,
+  # fm_anc_prevNeo_visit3plus_bord4.model,
+  fm_anc_prevNeo_visit4plusKnows_bord4.model
+  )
+
+
+tab_model(
+  chMort_anc_Models_bord4.list,
+  dv.labels = c(
+    # "Model 1:\n0 vs. any ANC", 
+    # "Model 2:\n2+ ANC", 
+    # "Model 3:\n3+ ANC", 
+    "Model 4:\n4+ ANC (excludes DK)"
+    ),
+  p.style = "stars",
+  pred.labels = pred.names,
+  show.intercept = F,
+  show.r2 = F,
+  show.reflvl = T,
+  file = file.path("data", "modelTables", "table_rr2_prevNeo_bord4.doc")#,
+  # order.terms = c(1,2,4,5,7,3,6)
+  )
+```
+
+
+
+
+
+
+
+## 3. examine how many child deaths we have among women with 2 kids in the last five years...to see if we can see if findings are consistent when modeling if there is a change from non-facility birth to facility birth in case of a child death -- could do this descriptively and/or with a change model depending on N. 
+
+### Sample processing
+```{r echo=FALSE}
+inputData <- modelData.list$fbd_prevChild
+inputData <- filter(inputData, !is.na(first_fbd))
+
+inputData$age_r_atCBirth_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+```
+
+### Crosstabs
+```{r}
+
+CrossTable(inputData$rh_del_fbd, inputData$first_fbd, prop.chisq = F)
+
+firstDeath.df <- filter(inputData, prec_neoDeath == T)
+firstAlive.df <- filter(inputData, prec_neoDeath == F)
+
+CrossTable(firstDeath.df$rh_del_fbd, firstDeath.df$first_fbd, prop.chisq = F)
+CrossTable(firstAlive.df$rh_del_fbd, firstAlive.df$first_fbd, prop.chisq = F)
+
+rm(firstDeath.df, firstAlive.df)
+
+```
+### 2010 data crosstabs
+
+```{r}
+
+load(file = file.path(here::here(), "data", "BRdata_mw10.Rdata"))
+
+BRdata_mw10_bord2.df <- filter(BRdata.mw10.df, bord == 2)
+
+gmodels::CrossTable(BRdata_mw10_bord2.df$interimB1B2_sd_b4Dur_ever, BRdata_mw10_bord2.df$rh_del_fbd)
+
+interimMMdeath.df <- filter(BRdata_mw10_bord2.df, interimB1B2_sd_b4Dur_ever == 1)
+NointerimMMdeath.df <- filter(BRdata_mw10_bord2.df, interimB1B2_sd_b4Dur_ever == 1)
+
+
+
+gmodels::CrossTable(BRdata_mw10_bord2.df$rh_del_fbd, BRdata_mw10_bord2.df$first_fbd, prop.chisq = F)
+
+firstDeath.df <- filter(BRdata_mw10_bord2.df, prec_neoDeath == T)
+firstAlive.df <- filter(BRdata_mw10_bord2.df, prec_neoDeath == F)
+
+gmodels::CrossTable(firstDeath.df$rh_del_fbd, firstDeath.df$first_fbd, prop.chisq = F)
+gmodels::CrossTable(firstAlive.df$rh_del_fbd, firstAlive.df$first_fbd, prop.chisq = F)
+
+```
+
+
+### Fit models
+```{r echo=FALSE}
+# fit the model
+modelFit <- lme4::glmer(
+  rh_del_fbd ~ # confirmed to be children aged 0 - 59 months
+    prec_neoDeath*first_fbd +
+    rural + # neonatal death & rural residence interaction 
+    wealthIndex + 
+    age_r_atCBirth_normalized + 
+    v133 + 
+    married + 
+    (1|v001), 
+  family=binomial,
+  data=inputData,
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_fbd_firstFBD.model <- modelFit
+
+save(fm_fbd_firstFBD.model, file = file.path(here::here(), "data", "fm_fbd_firstFBD.Rdata"))
+# load(file.path(here::here(), "data", "fm_fbd_prevSis_models.Rdata"))
+
+```
+
+```{r echo=FALSE, results='asis'}
+htmlreg(fm_fbd_firstFBD.model)
+```
+
+
+This interaction model will not converge, but, see included crosstable for insight.
+
+
+## 4. test models of the relevance of infant or child loss on the most recent kid's vaccination status (perhaps examining incomplete vs full vaccination by age 1 is the best way to do this--happy to help with coding--probably worth talking through to be sure on the same page) and among those recently ill,treatment sought (also happy to discuss specific coding). 
+
+### Youngest child
+
+#### Vaccination status
+
+##### Prepare analysis subset
+
+```{r, echo=FALSE}
+inputData <- KRdata
+
+# restrict to mothers with more than 1 live birth
+inputData <- filter(inputData, v201 > 1)
+
+# Only children 12 - 23 months. This step is not necessary, since
+# the outcome variable is only calculated for this age group - but included
+# here for clarity.
+inputData <- filter(inputData, agegroup == 1)
+
+# Reverse birth order (most recent = 1)
+table(inputData$bidx)
+
+# Extract the youngest child for women with children 12-23 months
+#   First, identify mothers with more than one child in this subset
+femaleID.vec <- table(inputData$femaleID) |> as.vector()
+names(femaleID.vec) <- names(table(inputData$femaleID))
+#   now filter only the female IDs with more than one child
+femaleID_multiple.vec <- femaleID.vec[femaleID.vec>1] |> names()
+
+#   Get the youngest child among mothers with multiple sick children
+inputDataYoungest.list <- lapply(femaleID_multiple.vec, function(female_id) {
+  ch_12To23.df <- filter(inputData, femaleID == female_id)
+  
+  # youngest bidx number
+  youngestBIDX <- min(ch_12To23.df$bidx, na.rm = T)
+  # Get the full observation
+  youngest_12To23.df <- filter(ch_12To23.df, bidx == youngestBIDX)
+  
+  return(youngest_12To23.df)
+})
+
+# bind this into a dataframe
+inputDataYoungest.df <- iotools::fdrbind(inputDataYoungest.list)
+# Get the vector of youngest children
+youngestChildID <- inputDataYoungest.df$childID
+
+# filter the full dataset down to only mothers with single children or the youngest child
+inputData <- filter(inputData, !femaleID %in% femaleID_multiple.vec | childID %in% youngestChildID)
+```
+
+##### ANY neonatal death exposure
+
+```{r echo=FALSE, results='asis'}
+
+# model failed to converge without re-scaling age, so here I normalize it.
+#   Mother's age
+inputData$age_r_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+#   Child's age
+inputData$age_normalized <- (inputData$age - mean(inputData$age)) / sd(inputData$age) 
+
+# fit the model
+modelFit <- lme4::glmer(
+  vaxx_allBasic_12to23 ~ 
+    neo_death_any +
+    child_female +
+    bord +
+    # demographic variables
+    wealthIndex + 
+    age_normalized +
+    age_r_normalized + 
+    rural + 
+    v133 + 
+    married + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_vaxx_neo.model <- modelFit
+save(fm_vaxx_neo.model, file = file.path(here::here(), "data", "fm_vaxx_neo.Rdata"))
+
+htmlreg(modelFit,
+  p.style = "stars",
+  pred.labels = pred.names)
+
+```
+
+
+##### ANY 28 days to 59 months death exposure
+
+It think it would actually make sense to run this 6 months to 59 months, since relatively deaths are attributable to diarrhea, malaria, or pneumonia prior to 6 months - but doing the 28 days to 6 months as requested.
+
+```{r echo=FALSE, results='asis'}
+
+inputData$death_28dTo59m_any <- ifelse(inputData$death_12mTo59m_any == 1 | inputData$death_28dTo11m_any == 1, 1, 0)
+
+# fit the model
+modelFit <- lme4::glmer(
+  vaxx_allBasic_12to23 ~ 
+    death_28dTo59m_any +
+    child_female +
+    bord +
+    # demographic variables
+    wealthIndex + 
+    age_normalized + 
+    age_r_normalized + 
+    rural + 
+    v133 + 
+    married + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_vaxx_28dTo59m.model <- modelFit
+save(fm_vaxx_28dTo59m.model, file = file.path(here::here(), "data", "fm_vaxx_28dTo59m.Rdata"))
+
+htmlreg(modelFit,
+  p.style = "stars",
+  pred.labels = pred.names)
+
+```
+
+##### Any child under five death
+
+```{r echo=FALSE, results='asis'}
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  vaxx_allBasic_12to23 ~ 
+    u5_death_any +
+    child_female +
+    bord +
+    # demographic variables
+    wealthIndex + 
+    age_normalized +
+    age_r_normalized + 
+    rural + 
+    v133 + 
+    married + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_vaxx_u5m.model <- modelFit
+save(fm_vaxx_u5m.model, file = file.path(here::here(), "data", "fm_vaxx_u5m.Rdata"))
+
+
+```
+
+
+##### Table output
+
+```{r}
+
+vaxx_full_Models.list <- list(
+  fm_vaxx_neo.model, # Neonatal exposure
+  fm_vaxx_28dTo59m.model, # 28 days to 59 months
+  fm_vaxx_u5m.model # Under five exposure
+  )
+
+tab_model(
+  vaxx_full_Models.list,
+  dv.labels = c("Model 1:\n0 Neonatal exposure", "Model 2:\nPost-neonatal", "Model 3:\nUnder 5"),
+  p.style = "stars",
+  pred.labels = pred.names,
+  show.intercept = F,
+  show.r2 = F,
+  show.reflvl = T,
+  file = file.path("data", "modelTables", "table_rr4_vaxx.doc")#,
+  # order.terms = c(1,2,4,5,7,3,6)
+  )
+
+```
+
+
+
+#### Sick child
+
+##### Sample descriptions
+
+Also, use only the youngest child for mothers with multiple sick children.
+
+```{r echo=FALSE}
+
+library(iotools)
+
+inputData <- KRdata
+inputData <- filter(inputData, !is.na(any_care))
+
+# Reverse birth order (most recent = 1)
+table(inputData$bidx)
+
+# Extract the youngest child for women with multiple sick children
+#   First, identify mothers with more than one child in this subset
+femaleID.vec <- table(inputData$femaleID) |> as.vector()
+names(femaleID.vec) <- names(table(inputData$femaleID))
+#   now filter only the female IDs with more than one child
+femaleID_multiple.vec <- femaleID.vec[femaleID.vec>1] |> names()
+
+#   Get the youngest child among mothers with multiple sick children
+inputDataYoungest.list <- lapply(femaleID_multiple.vec, function(female_id) {
+  sickChildren.df <- filter(inputData, femaleID == female_id)
+  
+  # youngest bidx number
+  youngestBIDX <- min(sickChildren.df$bidx, na.rm = T)
+  # Get the full observation
+  youngestSickChild.df <- filter(sickChildren.df, bidx == youngestBIDX)
+  
+  return(youngestSickChild.df)
+})
+
+# bind this into a dataframe
+inputDataYoungest.df <- iotools::fdrbind(inputDataYoungest.list)
+youngestChildID <- inputDataYoungest.df$childID
+
+# filter the full dataset down to only mothers with single children or the youngest child
+inputData <- filter(inputData, !femaleID %in% femaleID_multiple.vec | childID %in% youngestChildID)
+
+
+
+```
+
+
+
+##### ANY neonatal death exposure
+
+```{r echo=FALSE, results='asis'}
+
+# inputData$KRdata # if using all children (not restricting to youngest child of a mother)
+
+# Restrict to mothers who have had more than one live birth
+inputData <- filter(inputData, v201 > 1)
+
+inputData$age_r_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+inputData$age_normalized <- (inputData$age - mean(inputData$age)) / sd(inputData$age)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  any_care ~ 
+    neo_death_any +
+    child_female +
+    bord +
+    # demographic variables
+    age_normalized +
+    age_r_normalized + 
+    wealthIndex + 
+    rural + 
+    v133 + 
+    married + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_care_neo.model <- modelFit
+save(fm_care_neo.model, file = file.path(here::here(), "data", "fm_care_neo.Rdata"))
+
+htmlreg(modelFit,
+  p.style = "stars",
+  pred.labels = pred.names)
+
+
+
+```
+
+
+##### ANY 28 days to 59 months death exposure
+
+```{r echo=FALSE, results='asis'}
+
+# inputData <- KRdata
+# 
+# inputData$age_r_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+# inputData$age_normalized <- (inputData$age - mean(inputData$age)) / sd(inputData$age)
+
+inputData$death_28dTo59m_any <- ifelse(inputData$death_12mTo59m_any == 1 | inputData$death_28dTo11m_any == 1, 1, 0)
+
+# fit the model
+modelFit <- lme4::glmer(
+  any_care ~ 
+    death_28dTo59m_any +
+    child_female +
+    bord +
+    # demographic variables
+    age_normalized +
+    age_r_normalized +
+    wealthIndex + 
+    rural + 
+    v133 + 
+    married + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_care_28dTo59m.model <- modelFit
+save(fm_care_28dTo59m.model, file = file.path(here::here(), "data", "fm_care_28dTo59m.Rdata"))
+
+htmlreg(modelFit,
+  p.style = "stars",
+  pred.labels = pred.names)
+
+```
+
+
+##### Any child under five death
+
+```{r echo=FALSE, results='asis'}
+
+
+inputData$death_28dTo59m_any <- ifelse(inputData$death_12mTo59m_any == 1 | inputData$death_28dTo11m_any == 1, 1, 0)
+
+# fit the model
+modelFit <- lme4::glmer(
+  any_care ~ 
+    u5_death_any +
+    child_female +
+    bord +
+    # demographic variables
+    age_normalized +
+    age_r_normalized +
+    wealthIndex + 
+    rural + 
+    v133 + 
+    # married + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_care_u5.model <- modelFit
+save(fm_care_u5.model, file = file.path(here::here(), "data", "fm_care_u5.Rdata"))
+
+htmlreg(modelFit,
+  p.style = "stars",
+  pred.labels = pred.names)
+
+```
+
+##### Tables
+
+```{r}
+
+care_full_Models.list <- list(
+  fm_care_neo.model, # Neonatal exposure
+  fm_care_28dTo59m.model, # 28 days to 59 months
+  fm_care_u5.model # Under five exposure
+  )
+
+
+cat("Exposure to sister's maternal mortality interaction with rural")
+
+tab_model(
+  care_full_Models.list,
+  dv.labels = c("Model 1:\n0 Neonatal exposure", "Model 2:\nPost-neonatal", "Model 3:\nUnder 5"),
+  p.style = "stars",
+  pred.labels = pred.names,
+  show.intercept = F,
+  show.r2 = F,
+  show.reflvl = T,
+  file = file.path("data", "modelTables", "table_rr4_care.doc")#,
+  # order.terms = c(1,2,4,5,7,3,6)
+  )
+
+```
+
+
+
+### Birth order = 2
+
+#### Vaccination status
+
+##### Prepare analysis subset
+
+```{r, echo=FALSE}
+inputData <- KRdata
+
+# Only children 12 - 23 months. This step is not necessary, since
+# the outcome variable is only calculated for this age group - but included
+# here for clarity.
+inputData <- filter(inputData, agegroup == 1)
+
+# filter to second child
+inputData <- filter(inputData, bord ==2)
+```
+
+##### ANY neonatal death exposure
+
+```{r echo=FALSE, results='asis'}
+
+# model failed to converge without re-scaling age, so here I normalize it.
+#   Mother's age
+inputData$age_r_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+#   Child's age
+inputData$age_normalized <- (inputData$age - mean(inputData$age)) / sd(inputData$age) 
+
+# fit the model
+modelFit <- lme4::glmer(
+  vaxx_allBasic_12to23 ~ 
+    neo_death_any +
+    child_female +
+    # demographic variables
+    wealthIndex + 
+    age_normalized +
+    age_r_normalized + 
+    rural + 
+    v133 + 
+    married + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_vaxx_neo_bord2.model <- modelFit
+save(fm_vaxx_neo_bord2.model, file = file.path(here::here(), "data", "fm_vaxx_neo_bord2.Rdata"))
+
+htmlreg(modelFit,
+  p.style = "stars",
+  pred.labels = pred.names)
+
+```
+
+
+##### ANY 28 days to 59 months death exposure
+
+It think it would actually make sense to run this 6 months to 59 months, since relatively deaths are attributable to diarrhea, malaria, or pneumonia prior to 6 months - but doing the 28 days to 6 months as requested.
+
+```{r echo=FALSE, results='asis'}
+
+inputData$death_28dTo59m_any <- ifelse(inputData$death_12mTo59m_any == 1 | inputData$death_28dTo11m_any == 1, 1, 0)
+
+# fit the model
+modelFit <- lme4::glmer(
+  vaxx_allBasic_12to23 ~ 
+    death_28dTo59m_any +
+    child_female +
+    # demographic variables
+    wealthIndex + 
+    age_normalized + 
+    age_r_normalized + 
+    rural + 
+    v133 + 
+    married + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_vaxx_28dTo59m_bord2.model <- modelFit
+save(fm_vaxx_28dTo59m_bord2.model, file = file.path(here::here(), "data", "fm_vaxx_28dTo59m_bord2.Rdata"))
+
+texreg(fm_vaxx_28dTo59m_bord2.model,
+  p.style = "stars",
+  pred.labels = pred.names)
+
+```
+
+##### Any child under five death
+
+```{r echo=FALSE, results='asis'}
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  vaxx_allBasic_12to23 ~ 
+    u5_death_any +
+    child_female +
+    # demographic variables
+    wealthIndex + 
+    age_normalized +
+    age_r_normalized + 
+    rural + 
+    v133 + 
+    married + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_vaxx_u5m_bord2.model <- modelFit
+save(fm_vaxx_u5m_bord2.model, file = file.path(here::here(), "data", "fm_vaxx_u5m_bord2.Rdata"))
+
+htmlreg(modelFit,
+  p.style = "stars",
+  pred.labels = pred.names)
+```
+
+##### Tables
+
+```{r}
+
+vaxx_full_Models.list <- list(
+  fm_vaxx_neo_bord2.model, # Neonatal exposure
+  fm_vaxx_28dTo59m_bord2.model, # 28 days to 59 months
+  fm_vaxx_u5m_bord2.model # Under five exposure
+  )
+
+
+tab_model(
+  vaxx_full_Models.list,
+  dv.labels = c("Model 1:\n0 Neonatal exposure", "Model 2:\nPost-neonatal", "Model 3:\nUnder 5"),
+  p.style = "stars",
+  pred.labels = pred.names,
+  show.intercept = F,
+  show.r2 = F,
+  show.reflvl = T,
+  file = file.path("data", "modelTables", "table_rr2_bord2.doc")#,
+  # order.terms = c(1,2,4,5,7,3,6)
+  )
+
+```
+
+
+#### Sick child
+
+##### Sample descriptions
+
+Also, use only the youngest child for mothers with multiple sick children.
+
+```{r echo=FALSE}
+
+library(iotools)
+
+inputData <- KRdata
+inputData <- filter(inputData, !is.na(any_care))
+
+# Reverse birth order (most recent = 1)
+table(inputData$bidx)
+
+# filter to second child
+inputData <- filter(inputData, bord == 2)
+
+```
+
+
+
+##### ANY neonatal death exposure
+
+```{r echo=FALSE, results='asis'}
+
+# inputData$KRdata # if using all children (not restricting to youngest child of a mother)
+
+inputData$age_r_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+inputData$age_normalized <- (inputData$age - mean(inputData$age)) / sd(inputData$age)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  any_care ~ 
+    neo_death_any +
+    child_female +
+    # demographic variables
+    age_normalized +
+    age_r_normalized + 
+    wealthIndex + 
+    rural + 
+    v133 + 
+    married + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_care_neo_bord2.model <- modelFit
+save(fm_care_neo_bord2.model, file = file.path(here::here(), "data", "fm_care_neo_bord2.Rdata"))
+
+
+```
+
+
+##### ANY 28 days to 59 months death exposure
+
+```{r echo=FALSE, results='asis'}
+
+# inputData <- KRdata
+# 
+# inputData$age_r_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+# inputData$age_normalized <- (inputData$age - mean(inputData$age)) / sd(inputData$age)
+
+inputData$death_28dTo59m_any <- ifelse(inputData$death_12mTo59m_any == 1 | inputData$death_28dTo11m_any == 1, 1, 0)
+
+# fit the model
+modelFit <- lme4::glmer(
+  any_care ~ 
+    death_28dTo59m_any +
+    child_female +
+    # demographic variables
+    age_normalized +
+    age_r_normalized +
+    wealthIndex + 
+    rural + 
+    v133 + 
+    married + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_care_28dTo59m_bord2.model <- modelFit
+save(fm_care_28dTo59m_bord2.model, file = file.path(here::here(), "data", "fm_care_28dTo59m_bord2.Rdata"))
+
+```
+
+
+##### Any child under five death
+
+```{r echo=FALSE, results='asis'}
+
+
+
+inputData$death_28dTo59m_any <- ifelse(inputData$death_12mTo59m_any == 1 | inputData$death_28dTo11m_any == 1, 1, 0)
+
+# fit the model
+modelFit <- lme4::glmer(
+  any_care ~ 
+    u5_death_any +
+    child_female +
+    # demographic variables
+    age_normalized +
+    age_r_normalized +
+    wealthIndex + 
+    rural + 
+    v133 + 
+    # married + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_care_u5m_bord2.model <- modelFit
+save(fm_care_u5m_bord2.model, file = file.path(here::here(), "data", "fm_care_u5m_bord2.Rdata"))
+
+htmlreg(modelFit,
+  p.style = "stars",
+  pred.labels = pred.names)
+
+```
+
+
+##### Tables
+
+```{r}
+
+care_full_Models_bord2.list <- list(
+  fm_care_neo_bord2.model, # Neonatal exposure
+  fm_care_28dTo59m_bord2.model, # 28 days to 59 months
+  fm_care_u5m_bord2.model # Under five exposure
+  )
+
+
+cat("Exposure to sister's maternal mortality interaction with rural")
+
+tab_model(
+  care_full_Models_bord2.list,
+  dv.labels = c("Model 1:\n0 Neonatal exposure", "Model 2:\nPost-neonatal", "Model 3:\nUnder 5"),
+  p.style = "stars",
+  pred.labels = pred.names,
+  show.intercept = F,
+  show.r2 = F,
+  show.reflvl = T,
+  file = file.path("data", "modelTables", "table_rr4_care_bord2.doc")#,
+  # order.terms = c(1,2,4,5,7,3,6)
+  )
+
+```
+
+### Birth order = 3
+
+#### Vaccination status
+
+##### Prepare analysis subset
+
+```{r, echo=FALSE}
+inputData <- KRdata
+
+# Only children 12 - 23 months. This step is not necessary, since
+# the outcome variable is only calculated for this age group - but included
+# here for clarity.
+inputData <- filter(inputData, agegroup == 1)
+
+# filter to second child
+inputData <- filter(inputData, bord ==3)
+```
+
+##### ANY neonatal death exposure
+
+```{r echo=FALSE, results='asis'}
+
+# model failed to converge without re-scaling age, so here I normalize it.
+#   Mother's age
+inputData$age_r_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+#   Child's age
+inputData$age_normalized <- (inputData$age - mean(inputData$age)) / sd(inputData$age) 
+
+# fit the model
+modelFit <- lme4::glmer(
+  vaxx_allBasic_12to23 ~ 
+    neo_death_any +
+    child_female +
+    # demographic variables
+    wealthIndex + 
+    age_normalized +
+    age_r_normalized + 
+    rural + 
+    v133 + 
+    married + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_vaxx_neo_bord3.model <- modelFit
+save(fm_vaxx_neo_bord3.model, file = file.path(here::here(), "data", "fm_vaxx_neo_bord3.Rdata"))
+
+htmlreg(modelFit,
+  p.style = "stars",
+  pred.labels = pred.names)
+
+```
+
+
+##### ANY 28 days to 59 months death exposure
+
+It think it would actually make sense to run this 6 months to 59 months, since relatively deaths are attributable to diarrhea, malaria, or pneumonia prior to 6 months - but doing the 28 days to 6 months as requested.
+
+```{r echo=FALSE, results='asis'}
+
+inputData$death_28dTo59m_any <- ifelse(inputData$death_12mTo59m_any == 1 | inputData$death_28dTo11m_any == 1, 1, 0)
+
+# fit the model
+modelFit <- lme4::glmer(
+  vaxx_allBasic_12to23 ~ 
+    death_28dTo59m_any +
+    child_female +
+    # demographic variables
+    wealthIndex + 
+    age_normalized + 
+    age_r_normalized + 
+    rural + 
+    v133 + 
+    married + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_vaxx_28dTo59m_bord3.model <- modelFit
+save(fm_vaxx_28dTo59m_bord3.model, file = file.path(here::here(), "data", "fm_vaxx_28dTo59m_bord3.Rdata"))
+
+texreg(fm_vaxx_28dTo59m_bord3.model,
+  p.style = "stars",
+  pred.labels = pred.names,
+  show.icc = T)
+
+```
+
+##### Any child under five death
+
+```{r echo=FALSE, results='asis'}
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  vaxx_allBasic_12to23 ~ 
+    u5_death_any +
+    child_female +
+    # demographic variables
+    wealthIndex + 
+    age_normalized +
+    age_r_normalized + 
+    rural + 
+    v133 + 
+    married + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_vaxx_u5m_bord3.model <- modelFit
+save(fm_vaxx_u5m_bord3.model, file = file.path(here::here(), "data", "fm_vaxx_u5m_bord3.Rdata"))
+
+htmlreg(modelFit,
+  p.style = "stars",
+  pred.labels = pred.names)
+```
+
+##### Tables
+
+```{r}
+
+vaxx_full_Models.list <- list(
+  fm_vaxx_neo_bord3.model, # Neonatal exposure
+  fm_vaxx_28dTo59m_bord3.model, # 28 days to 59 months
+  fm_vaxx_u5m_bord3.model # Under five exposure
+  )
+
+
+tab_model(
+  vaxx_full_Models.list,
+  dv.labels = c("Model 1:\n0 Neonatal exposure", "Model 2:\nPost-neonatal", "Model 3:\nUnder 5"),
+  p.style = "stars",
+  pred.labels = pred.names,
+  show.intercept = F,
+  show.r2 = F,
+  show.reflvl = T,
+  file = file.path("data", "modelTables", "table_rr2_bord3.doc")#,
+  # order.terms = c(1,2,4,5,7,3,6)
+  )
+
+```
+
+
+#### Sick child
+
+##### Sample descriptions
+
+Also, use only the youngest child for mothers with multiple sick children.
+
+```{r echo=FALSE}
+
+library(iotools)
+
+inputData <- KRdata
+inputData <- filter(inputData, !is.na(any_care))
+
+# Reverse birth order (most recent = 1)
+table(inputData$bidx)
+
+# filter to second child
+inputData <- filter(inputData, bord == 3)
+
+```
+
+
+
+##### ANY neonatal death exposure
+
+```{r echo=FALSE, results='asis'}
+
+# inputData$KRdata # if using all children (not restricting to youngest child of a mother)
+
+inputData$age_r_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+inputData$age_normalized <- (inputData$age - mean(inputData$age)) / sd(inputData$age)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  any_care ~ 
+    neo_death_any +
+    child_female +
+    # demographic variables
+    age_normalized +
+    age_r_normalized + 
+    wealthIndex + 
+    rural + 
+    v133 + 
+    married + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_care_neo_bord3.model <- modelFit
+save(fm_care_neo_bord3.model, file = file.path(here::here(), "data", "fm_care_neo_bord3.Rdata"))
+
+htmlreg(modelFit,
+  p.style = "stars",
+  pred.labels = pred.names)
+
+
+
+```
+
+
+##### ANY 28 days to 59 months death exposure
+
+```{r echo=FALSE, results='asis'}
+
+
+inputData$death_28dTo59m_any <- ifelse(inputData$death_12mTo59m_any == 1 | inputData$death_28dTo11m_any == 1, 1, 0)
+
+# fit the model
+modelFit <- lme4::glmer(
+  any_care ~ 
+    death_28dTo59m_any +
+    child_female +
+    # demographic variables
+    age_normalized +
+    age_r_normalized +
+    wealthIndex + 
+    rural + 
+    v133 + 
+    married + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_care_28dTo59m_bord3.model <- modelFit
+save(fm_care_28dTo59m_bord3.model, file = file.path(here::here(), "data", "fm_care_28dTo59m_bord3.Rdata"))
+
+htmlreg(modelFit,
+  p.style = "stars",
+  pred.labels = pred.names)
+
+```
+
+
+##### Any child under five death
+
+```{r echo=FALSE, results='asis'}
+
+inputData$death_28dTo59m_any <- ifelse(inputData$death_12mTo59m_any == 1 | inputData$death_28dTo11m_any == 1, 1, 0)
+
+# fit the model
+modelFit <- lme4::glmer(
+  any_care ~ 
+    u5_death_any +
+    # demographic variables
+    age_normalized +
+    age_r_normalized +
+    wealthIndex + 
+    rural + 
+    v133 + 
+    # married + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_care_u5m_bord3.model <- modelFit
+save(fm_care_u5m_bord3.model, file = file.path(here::here(), "data", "fm_care_u5m_bord3.Rdata"))
+
+htmlreg(modelFit,
+  p.style = "stars",
+  pred.labels = pred.names)
+
+```
+
+##### Tables
+
+```{r}
+
+care_full_Models_bord3.list <- list(
+  fm_care_neo_bord3.model, # Neonatal exposure
+  fm_care_28dTo59m_bord3.model, # 28 days to 59 months
+  fm_care_u5m_bord3.model # Under five exposure
+  )
+
+
+cat("Exposure to sister's maternal mortality interaction with rural")
+
+tab_model(
+  care_full_Models_bord3.list,
+  dv.labels = c("Model 1:\n0 Neonatal exposure", "Model 2:\nPost-neonatal", "Model 3:\nUnder 5"),
+  p.style = "stars",
+  pred.labels = pred.names,
+  show.intercept = F,
+  show.r2 = F,
+  show.reflvl = T,
+  file = file.path("data", "modelTables", "table_rr4_care_bord3.doc")#,
+  # order.terms = c(1,2,4,5,7,3,6)
+  )
+
+```
+
+
+### Birth order = 4
+
+#### Vaccination status
+
+##### Prepare analysis subset
+
+```{r, echo=FALSE}
+inputData <- KRdata
+
+# Only children 12 - 23 months. This step is not necessary, since
+# the outcome variable is only calculated for this age group - but included
+# here for clarity.
+inputData <- filter(inputData, agegroup == 1)
+
+# filter to second child
+inputData <- filter(inputData, bord == 4)
+```
+
+##### ANY neonatal death exposure
+
+```{r echo=FALSE, results='asis'}
+
+# model failed to converge without re-scaling age, so here I normalize it.
+#   Mother's age
+inputData$age_r_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+#   Child's age
+inputData$age_normalized <- (inputData$age - mean(inputData$age)) / sd(inputData$age) 
+
+# fit the model
+modelFit <- lme4::glmer(
+  vaxx_allBasic_12to23 ~ 
+    neo_death_any +
+    child_female +
+    # demographic variables
+    wealthIndex + 
+    age_normalized +
+    age_r_normalized + 
+    rural + 
+    v133 + 
+    married + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_vaxx_neo_bord4.model <- modelFit
+save(fm_vaxx_neo_bord4.model, file = file.path(here::here(), "data", "fm_vaxx_neo_bord4.Rdata"))
+
+htmlreg(modelFit,
+  p.style = "stars",
+  pred.labels = pred.names)
+
+```
+
+
+##### ANY 28 days to 59 months death exposure
+
+It think it would actually make sense to run this 6 months to 59 months, since relatively deaths are attributable to diarrhea, malaria, or pneumonia prior to 6 months - but doing the 28 days to 6 months as requested.
+
+```{r echo=FALSE, results='asis'}
+
+inputData$death_28dTo59m_any <- ifelse(inputData$death_12mTo59m_any == 1 | inputData$death_28dTo11m_any == 1, 1, 0)
+
+# fit the model
+modelFit <- lme4::glmer(
+  vaxx_allBasic_12to23 ~ 
+    death_28dTo59m_any +
+    child_female +
+    # demographic variables
+    wealthIndex + 
+    age_normalized + 
+    age_r_normalized + 
+    rural + 
+    v133 + 
+    married + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_vaxx_28dTo59m_bord4.model <- modelFit
+save(fm_vaxx_28dTo59m_bord4.model, file = file.path(here::here(), "data", "fm_vaxx_28dTo59m_bord4.Rdata"))
+
+htmlreg(modelFit,
+  p.style = "stars",
+  pred.labels = pred.names)
+
+```
+
+##### Any child under five death
+
+```{r echo=FALSE, results='asis'}
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  vaxx_allBasic_12to23 ~ 
+    u5_death_any +
+    child_female +
+    # demographic variables
+    wealthIndex + 
+    age_normalized +
+    age_r_normalized + 
+    rural + 
+    v133 + 
+    married + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_vaxx_u5m_bord4.model <- modelFit
+save(fm_vaxx_u5m_bord4.model, file = file.path(here::here(), "data", "fm_vaxx_u5m_bord4.Rdata"))
+
+htmlreg(modelFit,
+  p.style = "stars",
+  pred.labels = pred.names)
+```
+
+##### Tables
+
+```{r}
+
+vaxx_full_Models.list <- list(
+  fm_vaxx_neo_bord4.model, # Neonatal exposure
+  fm_vaxx_28dTo59m_bord4.model, # 28 days to 59 months
+  fm_vaxx_u5m_bord4.model # Under five exposure
+  )
+
+
+tab_model(
+  vaxx_full_Models.list,
+  dv.labels = c("Model 1:\n0 Neonatal exposure", "Model 2:\nPost-neonatal", "Model 3:\nUnder 5"),
+  p.style = "stars",
+  pred.labels = pred.names,
+  show.intercept = F,
+  show.r2 = F,
+  show.reflvl = T,
+  file = file.path("data", "modelTables", "table_rr2_bord4.doc")#,
+  # order.terms = c(1,2,4,5,7,3,6)
+  )
+
+```
+
+
+#### Sick child
+
+##### Sample descriptions
+
+Also, use only the youngest child for mothers with multiple sick children.
+
+```{r echo=FALSE}
+
+library(iotools)
+
+inputData <- KRdata
+inputData <- filter(inputData, !is.na(any_care))
+
+# Reverse birth order (most recent = 1)
+table(inputData$bidx)
+
+# filter to second child
+inputData <- filter(inputData, bord == 4)
+
+```
+
+
+
+##### ANY neonatal death exposure
+
+```{r echo=FALSE, results='asis'}
+
+# inputData$KRdata # if using all children (not restricting to youngest child of a mother)
+
+inputData$age_r_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+inputData$age_normalized <- (inputData$age - mean(inputData$age)) / sd(inputData$age)
+
+
+# fit the model
+modelFit <- lme4::glmer(
+  any_care ~ 
+    neo_death_any +
+    child_female +
+    # demographic variables
+    age_normalized +
+    age_r_normalized + 
+    wealthIndex + 
+    rural + 
+    v133 + 
+    married + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_care_neo_bord4.model <- modelFit
+save(fm_care_neo_bord4.model, file = file.path(here::here(), "data", "fm_care_neo_bord4.Rdata"))
+
+htmlreg(modelFit,
+  p.style = "stars",
+  pred.labels = pred.names)
+
+
+
+```
+
+
+##### ANY 28 days to 59 months death exposure
+
+```{r echo=FALSE, results='asis'}
+
+# inputData <- KRdata
+# 
+# inputData$age_r_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+# inputData$age_normalized <- (inputData$age - mean(inputData$age)) / sd(inputData$age)
+
+inputData$death_28dTo59m_any <- ifelse(inputData$death_12mTo59m_any == 1 | inputData$death_28dTo11m_any == 1, 1, 0)
+
+# fit the model
+modelFit <- lme4::glmer(
+  any_care ~ 
+    death_28dTo59m_any +
+    child_female +
+    # demographic variables
+    age_normalized +
+    age_r_normalized +
+    wealthIndex + 
+    rural + 
+    v133 + 
+    married + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_care_28dTo59m_bord4.model <- modelFit
+save(fm_care_28dTo59m_bord4.model, file = file.path(here::here(), "data", "fm_care_28dTo59m_bord4.Rdata"))
+
+htmlreg(modelFit,
+  p.style = "stars",
+  pred.labels = pred.names)
+
+```
+
+
+##### Any child under five death
+
+```{r echo=FALSE, results='asis'}
+
+# inputData <- KRdata
+# 
+# inputData$age_r_normalized <- (inputData$age_r - mean(inputData$age_r)) / sd(inputData$age_r)
+# inputData$age_normalized <- (inputData$age - mean(inputData$age)) / sd(inputData$age)
+
+inputData$death_28dTo59m_any <- ifelse(inputData$death_12mTo59m_any == 1 | inputData$death_28dTo11m_any == 1, 1, 0)
+
+# fit the model
+modelFit <- lme4::glmer(
+  any_care ~ 
+    u5_death_any +
+    child_female +
+    # demographic variables
+    age_normalized +
+    age_r_normalized +
+    wealthIndex + 
+    rural + 
+    v133 + 
+    # married + 
+    (1|v001), 
+  family=binomial, 
+  data=inputData, 
+  control = glmerControl(optimizer="bobyqa", 
+                         optCtrl = list(maxfun=2e6))
+)
+
+fm_care_u5m_bord4.model <- modelFit
+save(fm_care_u5m_bord4.model, file = file.path(here::here(), "data", "fm_care_u5m_bord4.Rdata"))
+
+htmlreg(modelFit,
+  p.style = "stars",
+  pred.labels = pred.names)
+
+```
+
+
+##### Tables
+
+```{r}
+
+care_full_Models_bord4.list <- list(
+  fm_care_neo_bord4.model, # Neonatal exposure
+  fm_care_28dTo59m_bord4.model, # 28 days to 59 months
+  fm_care_u5m_bord4.model # Under five exposure
+  )
+
+
+cat("Exposure to sister's maternal mortality interaction with rural")
+
+tab_model(
+  care_full_Models_bord4.list,
+  dv.labels = c("Model 1:\n0 Neonatal exposure", "Model 2:\nPost-neonatal", "Model 3:\nUnder 5"),
+  p.style = "stars",
+  pred.labels = pred.names,
+  show.intercept = F,
+  show.r2 = F,
+  show.reflvl = T,
+  file = file.path("data", "modelTables", "table_rr4_care_bord4.doc")#,
+  # order.terms = c(1,2,4,5,7,3,6)
+  )
+
+```
+
+
+#### Birth order specific tables
+
+##### Vaxx
+
+```{r}
+vaxx_postNeo_Models_bord.list <- list(
+  fm_vaxx_28dTo59m_bord2.model,
+  fm_vaxx_28dTo59m_bord3.model,
+  fm_vaxx_28dTo59m_bord4.model
+  )
+
+
+tab_model(
+  vaxx_postNeo_Models_bord.list,
+  dv.labels = c("Model 1:\n2nd Birth", "Model 2:\n3rd Birth", "Model 3:\n4th Birth"),
+  p.style = "stars",
+  pred.labels = pred.names,
+  show.intercept = F,
+  show.r2 = F,
+  show.reflvl = T,
+  file = file.path("data", "modelTables", "table_vaxx_postNeo_bord.doc")#,
+  # order.terms = c(1,2,4,5,7,3,6)
+  )
+```
+
+
+##### Care
+
+```{r}
+
+care_postNeo_Models_bord.list <- list(
+  fm_care_28dTo59m_bord2.model,
+  fm_care_28dTo59m_bord3.model,
+  fm_care_28dTo59m_bord4.model
+  )
+
+
+tab_model(
+  care_postNeo_Models_bord.list,
+  dv.labels = c("Model 1:\n2nd Birth", "Model 2:\n3rd Birth", "Model 3:\n4th Birth"),
+  p.style = "stars",
+  pred.labels = pred.names,
+  show.intercept = F,
+  show.r2 = F,
+  show.reflvl = T,
+  file = file.path("data", "modelTables", "table_care_postNeo_bord.doc")#,
+  # order.terms = c(1,2,4,5,7,3,6)
+  )
+
+```
+
+
+##### Together
+
+```{r}
+care_postNeo_Models_bord.list <- list(
+  fm_vaxx_28dTo59m_bord2.model,
+  fm_vaxx_28dTo59m_bord3.model,
+  fm_vaxx_28dTo59m_bord4.model,
+  fm_care_28dTo59m_bord2.model,
+  fm_care_28dTo59m_bord3.model,
+  fm_care_28dTo59m_bord4.model
+  )
+
+
+tab_model(
+  care_postNeo_Models_bord.list,
+  dv.labels = c(
+    "Vaccination\n2nd Birth", 
+    "Vaccination\n3rd Birth", 
+    "Vaccination\n4th Birth",
+    "Care seeking\n2nd Birth", 
+    "Care seeking\n3rd Birth", 
+    "Care seeking\n4th Birth"
+    ),
+  p.style = "stars",
+  pred.labels = pred.names,
+  show.intercept = F,
+  show.r2 = F,
+  show.reflvl = T,
+  file = file.path("data", "modelTables", "table_both_postNeo_bord.doc")#,
+  # order.terms = c(1,2,4,5,7,3,6)
+  )
+```
+
+
+
+
+
+## 5. give precise N of how many women had both sister and child death...I vaguely remember we looked at this very early on...but can't remember. 
+
+
+### Most recent delivery among women with 2 or more births
+
+```{r echo=FALSE}
+# Birth order is higher than one
+sisAndChild.df <- dplyr::filter(BRdata, bord > 1)
+# most recent birth
+sisAndChild.df <- dplyr::filter(sisAndChild.df, bidx == 1)
+
+# 
+table(sisAndChild.df$prev_sd_del_b4Dur_ever, sisAndChild.df$prec_u5Death, useNA = "ifany")
+
+```
+
+### Neonatal death
+
+```{r}
+
+# Birth order is higher than one
+sisAndChild.df <- dplyr::filter(BRdata, bord > 1)
+# most recent birth
+sisAndChild.df <- dplyr::filter(sisAndChild.df, bidx == 1)
+
+# 
+CrossTable(sisAndChild.df$prev_sd_del_b4Dur_ever, sisAndChild.df$prec_neoDeath, useNA = "ifany")
+
+```
+
+
+### Among our analytic samples
+
+#### Sister mortality and ANC
+
+```{r echo=FALSE}
+
+load(file.path(here::here(), "data", "modelDataFullList.Rdata"))
+
+df <- modelDataFull.list$anc_sisExposure
+CrossTable(df$prev_sd_del_b4Dur_ever, df$prec_u5Death, useNA = "ifany")
+
+```
+
+#### Sister mortality and FBD
+
+```{r echo=FALSE}
+
+df <- modelDataFull.list$fbd_sisExposure
+table(df$prev_sd_del_b4Dur_ever, df$prec_u5Death, useNA = "ifany")
+
+```
+
+
+
+#### Child mortality & ANC (bord = 2)
+
+```{r echo=FALSE}
+
+df <- modelDataFull.list$anc_prevChild
+table(df$prev_sd_del_b4Dur_ever, df$prec_u5Death, useNA = "ifany")
+
+```
+
+#### Child mortality & FBD (bord = 2)
+
+```{r}
+
+df <- modelDataFull.list$fbd_prevChild
+table(df$prev_sd_del_b4Dur_ever, df$prec_u5Death, useNA = "ifany")
+
+```
+
+
+
+
+
+
+
+
+
+
