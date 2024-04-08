@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/782810622.svg)](https://zenodo.org/doi/10.5281/zenodo.10946590)
+
 ## Code for mortality exposure paper
 
 This is the code that was used to generate the analysis for the article titled " Fatalism or vigilance?  
